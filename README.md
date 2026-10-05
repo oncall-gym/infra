@@ -17,6 +17,7 @@
 | Состав кластера | 1 control plane (master) и 2 worker-узла |
 | IP-адреса узлов | Статически прописаны на роутере (см. «Сеть узлов») |
 | Провижининг | Terraform: провайдеры `bpg/proxmox` (ВМ) и `siderolabs/talos` (конфигурация и bootstrap Talos) |
+| Доставка приложений | Argo CD v3.5.3 (GitOps, схема app of apps), манифесты — в каталоге `gitops/` |
 
 ## Сеть узлов
 
@@ -93,6 +94,59 @@ terraform output -raw talosconfig > talosconfig
 
 Токен API Proxmox передаётся только через переменную окружения `TF_VAR_proxmox_api_token` и в файлы не записывается.
 
+## Доставка приложений (GitOps)
+
+В кластере установлен Argo CD, который синхронизирует состояние кластера с каталогом `gitops/` этого репозитория (ветка `main`).
+
+| Параметр | Значение |
+| --- | --- |
+| Argo CD | v3.5.3 |
+| Helm-чарт | `argo-cd` 10.9.6 из `https://argoproj.github.io/argo-helm` |
+| Namespace | `argocd` |
+| Имя релиза | `argocd` |
+| Репозиторий | `git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git` (SSH) |
+| Проект Argo CD | `default` |
+
+Структура:
+
+| Путь | Назначение |
+| --- | --- |
+| `gitops/root.yaml` | корневое приложение `root`: следит за каталогом `gitops/apps` |
+| `gitops/apps/` | манифесты `Application`, по одному на компонент |
+| `gitops/apps/argocd.yaml` | приложение `argocd`: Argo CD управляет собственным Helm-релизом |
+| `gitops/argocd/values.yaml` | значения чарта Argo CD |
+
+Как это работает:
+
+- Приложение `root` применяет всё, что лежит в `gitops/apps`. Чтобы добавить компонент в кластер, достаточно положить туда манифест `Application` и отправить коммит в `main`.
+- У обоих приложений включена автоматическая синхронизация с `prune` и `selfHeal`: ручные правки в кластере откатываются, а удалённое из Git удаляется из кластера.
+- Для экономии памяти в чарте отключены Dex (SSO) и контроллер уведомлений.
+- Доступ к репозиторию — по SSH-ключу из секрета `repo-local-infra` в namespace `argocd`. Секрет создан вручную и в Git не хранится.
+
+Первичная установка (выполняется один раз на новом кластере, дальше Argo CD обслуживает себя сам):
+
+```sh
+helm --kubeconfig ./kubeconfig repo add argo https://argoproj.github.io/argo-helm
+helm --kubeconfig ./kubeconfig install argocd argo/argo-cd --version 10.9.6 \
+  --namespace argocd --create-namespace -f gitops/argocd/values.yaml
+
+kubectl --kubeconfig ./kubeconfig -n argocd create secret generic repo-local-infra \
+  --from-literal=type=git \
+  --from-literal=url=git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git \
+  --from-file=sshPrivateKey=<путь к приватному ключу>
+kubectl --kubeconfig ./kubeconfig -n argocd label secret repo-local-infra \
+  argocd.argoproj.io/secret-type=repository
+
+kubectl --kubeconfig ./kubeconfig apply -f gitops/root.yaml
+```
+
+Проверка состояния и доступ к интерфейсу (ingress пока нет, сервис `argocd-server` — `ClusterIP`):
+
+```sh
+kubectl --kubeconfig ./kubeconfig -n argocd get applications
+kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:443
+```
+
 ## Ресурсы
 
 Доступный бюджет ресурсов на Proxmox:
@@ -122,13 +176,12 @@ terraform output -raw talosconfig > talosconfig
 - окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
 - сеть (CNI, ingress, балансировка);
 - хранилище;
-- доставка приложений и управление конфигурацией;
 - наблюдаемость (метрики, логи);
 - механизм запуска и сброса сценариев тренажёра.
 
 ## Статус
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут через Terraform и работает. Прикладные компоненты и остальные открытые вопросы — впереди.
+Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут через Terraform и работает. В кластере установлен Argo CD, приложения `root` и `argocd` — `Synced` и `Healthy`. Прикладные компоненты и остальные открытые вопросы — впереди.
 
 ## Журнал изменений
 
@@ -136,3 +189,4 @@ terraform output -raw talosconfig > talosconfig
 - 2026-10-03 — зафиксированы статические IP-адреса узлов Talos на роутере: master — 192.168.91.201, worker-узлы — 192.168.91.211 и 192.168.91.212.
 - 2026-10-03 — вручную поднят кластер Talos `lab`: Talos v1.14.2, Kubernetes v1.37.1, все три узла `Ready`.
 - 2026-10-05 — кластер `lab` пересоздан через Terraform (провайдеры `bpg/proxmox` и `siderolabs/talos`): Talos v1.14.2, Kubernetes v1.37.0, узлы `talos-cp1`, `talos-w1`, `talos-w2`. Провижининг перенесён из открытых вопросов в принятые решения.
+- 2026-10-05 — в кластер установлен Argo CD v3.5.3 (чарт `argo-cd` 10.9.6), создано корневое приложение `root` по схеме app of apps. Доставка приложений перенесена из открытых вопросов в принятые решения.
