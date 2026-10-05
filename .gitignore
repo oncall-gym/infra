@@ -1,0 +1,8 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+kubeconfig
+talosconfig
+controlplane.yaml
+worker.yaml
