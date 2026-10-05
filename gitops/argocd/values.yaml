@@ -1,0 +1,5 @@
+# Экономим память: на стенде не нужны SSO и уведомления
+dex:
+  enabled: false
+notifications:
+  enabled: false
