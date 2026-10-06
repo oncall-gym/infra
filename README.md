@@ -18,6 +18,7 @@
 | IP-адреса узлов | Статически прописаны на роутере (см. «Сеть узлов») |
 | Провижининг | Terraform: провайдеры `bpg/proxmox` (ВМ) и `siderolabs/talos` (конфигурация и bootstrap Talos) |
 | Доставка приложений | Argo CD v3.5.3 (GitOps, схема app of apps), манифесты — в каталоге `gitops/` |
+| Балансировка (сервисы `LoadBalancer`) | MetalLB v0.16.1, режим L2, пул адресов 192.168.91.220–192.168.91.230 |
 
 ## Сеть узлов
 
@@ -30,6 +31,8 @@ IP-адреса хостов Talos статически прописаны на 
 | worker 2 | worker | 192.168.91.212 | `talos-w2` | `w2` | 212 |
 
 MAC-адреса ВМ заданы в Terraform явно, чтобы совпадать с арендами на роутере.
+
+Диапазон 192.168.91.220–192.168.91.230 в той же подсети отдан MetalLB под адреса сервисов типа `LoadBalancer` (см. «Балансировка (MetalLB)»).
 
 ## Кластер
 
@@ -115,11 +118,14 @@ terraform output -raw talosconfig > talosconfig
 | `gitops/apps/` | манифесты `Application`, по одному на компонент |
 | `gitops/apps/argocd.yaml` | приложение `argocd`: Argo CD управляет собственным Helm-релизом |
 | `gitops/argocd/values.yaml` | значения чарта Argo CD |
+| `gitops/apps/metallb.yaml` | приложение `metallb`: Helm-чарт MetalLB |
+| `gitops/apps/metallb-config.yaml` | приложение `metallb-config`: следит за каталогом `gitops/metallb-config` |
+| `gitops/metallb-config/pool.yaml` | пул адресов и L2-анонс MetalLB |
 
 Как это работает:
 
 - Приложение `root` применяет всё, что лежит в `gitops/apps`. Чтобы добавить компонент в кластер, достаточно положить туда манифест `Application` и отправить коммит в `main`.
-- У обоих приложений включена автоматическая синхронизация с `prune` и `selfHeal`: ручные правки в кластере откатываются, а удалённое из Git удаляется из кластера.
+- У всех приложений включена автоматическая синхронизация с `prune` и `selfHeal`: ручные правки в кластере откатываются, а удалённое из Git удаляется из кластера.
 - Для экономии памяти в чарте отключены Dex (SSO) и контроллер уведомлений.
 - Доступ к репозиторию — по SSH-ключу из секрета `repo-local-infra` в namespace `argocd`. Секрет создан вручную и в Git не хранится.
 
@@ -145,6 +151,34 @@ kubectl --kubeconfig ./kubeconfig apply -f gitops/root.yaml
 ```sh
 kubectl --kubeconfig ./kubeconfig -n argocd get applications
 kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:443
+```
+
+## Балансировка (MetalLB)
+
+Сервисы типа `LoadBalancer` получают внешние адреса от MetalLB. Он установлен через Argo CD двумя приложениями: `metallb` ставит сам MetalLB, `metallb-config` — его настройки.
+
+| Параметр | Значение |
+| --- | --- |
+| MetalLB | v0.16.1 |
+| Helm-чарт | `metallb` 0.16.1 из `https://metallb.github.io/metallb` |
+| Namespace | `metallb-system` |
+| Режим | L2 (ARP) |
+| Пул адресов | `lan`: 192.168.91.220–192.168.91.230, автоназначение включено |
+| Анонс | `L2Advertisement` `lan` для пула `lan` |
+
+Особенности:
+
+- Значения чарта не переопределяются, используется конфигурация по умолчанию.
+- Namespace `metallb-system` создаёт Argo CD (`CreateNamespace=true`) с меткой `pod-security.kubernetes.io/enforce: privileged`: speaker работает в сети хоста, а Talos по умолчанию применяет профиль `baseline`.
+- `IPAddressPool` и `L2Advertisement` вынесены в отдельное приложение, потому что их CRD появляются только после установки чарта. Поэтому у `metallb-config` включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации.
+- Адреса пула не должны пересекаться с DHCP-диапазоном роутера и адресами узлов.
+
+Проверка состояния:
+
+```sh
+kubectl --kubeconfig ./kubeconfig -n metallb-system get pods
+kubectl --kubeconfig ./kubeconfig -n metallb-system get ipaddresspools,l2advertisements
+kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 ```
 
 ## Ресурсы
@@ -174,14 +208,14 @@ kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:
 Будут решены позже:
 
 - окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
-- сеть (CNI, ingress, балансировка);
+- сеть (CNI, ingress);
 - хранилище;
 - наблюдаемость (метрики, логи);
 - механизм запуска и сброса сценариев тренажёра.
 
 ## Статус
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут через Terraform и работает. В кластере установлен Argo CD, приложения `root` и `argocd` — `Synced` и `Healthy`. Прикладные компоненты и остальные открытые вопросы — впереди.
+Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут через Terraform и работает. В кластере установлены Argo CD и MetalLB, приложения `root`, `argocd`, `metallb` и `metallb-config` — `Synced` и `Healthy`. Сервисов типа `LoadBalancer` пока нет. Прикладные компоненты и остальные открытые вопросы — впереди.
 
 ## Журнал изменений
 
@@ -190,3 +224,4 @@ kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:
 - 2026-10-03 — вручную поднят кластер Talos `lab`: Talos v1.14.2, Kubernetes v1.37.1, все три узла `Ready`.
 - 2026-10-05 — кластер `lab` пересоздан через Terraform (провайдеры `bpg/proxmox` и `siderolabs/talos`): Talos v1.14.2, Kubernetes v1.37.0, узлы `talos-cp1`, `talos-w1`, `talos-w2`. Провижининг перенесён из открытых вопросов в принятые решения.
 - 2026-10-05 — в кластер установлен Argo CD v3.5.3 (чарт `argo-cd` 10.9.6), создано корневое приложение `root` по схеме app of apps. Доставка приложений перенесена из открытых вопросов в принятые решения.
+- 2026-10-06 — через Argo CD установлен MetalLB v0.16.1 (чарт `metallb` 0.16.1) в режиме L2 с пулом адресов 192.168.91.220–192.168.91.230. Балансировка перенесена из открытых вопросов в принятые решения.
