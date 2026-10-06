@@ -3,5 +3,3 @@ dex:
   enabled: false
 notifications:
   enabled: false
-server:
-  replicas: 2
