@@ -21,6 +21,9 @@ helm repo add argo https://argoproj.github.io/argo-helm >/dev/null
 helm repo update >/dev/null
 
 # Без CNI ноды остаются NotReady, поэтому Cilium ставится первым
+kubectl apply --server-side -f \
+  https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+
 helm upgrade --install cilium cilium/cilium \
   --namespace kube-system --version "$CILIUM_VERSION" \
   -f gitops/cilium/values.yaml
