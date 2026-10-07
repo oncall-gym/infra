@@ -3,3 +3,7 @@ dex:
   enabled: false
 notifications:
   enabled: false
+
+configs:
+  params:
+    server.insecure: true

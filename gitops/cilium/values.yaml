@@ -28,3 +28,8 @@ hubble:
     enabled: true
   ui:
     enabled: true
+
+gatewayAPI:
+  enabled: true
+  enableAlpn: true
+  enableAppProtocol: true
