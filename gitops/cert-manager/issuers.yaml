@@ -1,0 +1,35 @@
+# Собственный центр сертификации стенда в три шага:
+# 1) издатель, который умеет только подписывать сам себя;
+# 2) корневой сертификат, выпущенный этим издателем;
+# 3) рабочий издатель, который подписывает всё остальное корневым.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lab-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: Lab Root CA
+  secretName: lab-root-ca
+  duration: 87600h # 10 лет
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: lab-ca
+spec:
+  ca:
+    secretName: lab-root-ca
