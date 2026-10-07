@@ -1,3 +1,20 @@
+# Всё, что пришло по HTTP, отправляем на HTTPS
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-to-https
+  namespace: gateway
+spec:
+  parentRefs:
+    - name: lab
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -7,6 +24,7 @@ spec:
   parentRefs:
     - name: lab
       namespace: gateway
+      sectionName: https
   hostnames:
     - argocd.lab.home.arpa
   rules:
@@ -23,6 +41,7 @@ spec:
   parentRefs:
     - name: lab
       namespace: gateway
+      sectionName: https
   hostnames:
     - hubble.lab.home.arpa
   rules:
