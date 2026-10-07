@@ -6,3 +6,4 @@ kubeconfig
 talosconfig
 controlplane.yaml
 worker.yaml
+lab-root-ca-secret.yaml

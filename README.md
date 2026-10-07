@@ -21,7 +21,8 @@
 | Сеть кластера (CNI) | Cilium v1.20.2 вместо встроенных Flannel и kube-proxy, с Hubble (relay и UI) |
 | Доставка приложений | Argo CD v3.5.3 (GitOps, схема app of apps), манифесты — в каталоге `gitops/` |
 | Балансировка (сервисы `LoadBalancer`) | MetalLB v0.16.1, режим L2, пул адресов 192.168.91.220–192.168.91.230 |
-| Входящий трафик (ingress) | Gateway API v1.6.1 в реализации Cilium: общий шлюз `lab` на 192.168.91.220, HTTP, имена `*.lab.home.arpa` |
+| Входящий трафик (ingress) | Gateway API v1.6.1 в реализации Cilium: общий шлюз `lab` на 192.168.91.220, HTTPS (HTTP перенаправляется на HTTPS), имена `*.lab.home.arpa` |
+| TLS и сертификаты | cert-manager v1.21.2 с собственным центром сертификации стенда (`ClusterIssuer` `lab-ca`); TLS завершается на шлюзе, сертификат — `*.lab.home.arpa` |
 
 ## Сеть узлов
 
@@ -141,6 +142,7 @@ export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'
 - Версии чартов заданы в двух местах и должны совпадать: `CILIUM_VERSION` — с `targetRevision` в `gitops/apps/cilium.yaml`, `ARGOCD_VERSION` — с `targetRevision` в `gitops/apps/argocd.yaml`. Иначе Argo CD после установки сразу приведёт релиз к версии из Git.
 - Версия Gateway API тоже задана дважды: в адресе манифеста в `bootstrap.sh` и в `targetRevision` приложения `gitops/apps/gateway-api-crds.yaml`. Обе должны совпадать и соответствовать версии, под которую собран Cilium.
 - После шага 9 Argo CD берёт под своё управление установленные скриптом релизы `cilium` и `argocd` и типы ресурсов Gateway API (приложение `gateway-api-crds`).
+- cert-manager и центр сертификации стенда скрипт не ставит: их разворачивает Argo CD. В новом кластере корневой сертификат выпускается заново, поэтому доверие к нему на клиентских машинах нужно настраивать повторно (см. «Сертификаты (cert-manager)»).
 
 ## Сеть кластера (Cilium)
 
@@ -163,9 +165,9 @@ CNI кластера — Cilium. Он заменяет встроенные в T
 - Набор capabilities агента задан явно, автомонтирование cgroup отключено, используется `/sys/fs/cgroup` хоста.
 - Для экономии памяти оператор Cilium работает в одной реплике.
 - Адреса сервисам типа `LoadBalancer` по-прежнему выдаёт MetalLB.
-- Cilium реализует Gateway API: принимает входящий HTTP-трафик через шлюз `lab` (см. «Входящий трафик (Gateway API)»). Для этого CRD Gateway API должны быть установлены до запуска оператора Cilium.
+- Cilium реализует Gateway API: принимает входящий HTTP- и HTTPS-трафик через шлюз `lab` (см. «Входящий трафик (Gateway API)»). Для этого CRD Gateway API должны быть установлены до запуска оператора Cilium.
 
-Hubble UI доступен из локальной сети по адресу http://hubble.lab.home.arpa (сервис `hubble-ui` остаётся `ClusterIP`, наружу его публикует шлюз).
+Hubble UI доступен из локальной сети по адресу https://hubble.lab.home.arpa (сервис `hubble-ui` остаётся `ClusterIP`, наружу его публикует шлюз).
 
 Проверка состояния и запасной доступ к Hubble UI в обход шлюза:
 
@@ -203,19 +205,22 @@ kubectl --kubeconfig ./kubeconfig -n kube-system port-forward svc/hubble-ui 1200
 | `gitops/apps/gateway-api-crds.yaml` | приложение `gateway-api-crds`: типы ресурсов (CRD) Gateway API из `kubernetes-sigs/gateway-api` |
 | `gitops/apps/gateway.yaml` | приложение `gateway`: следит за каталогом `gitops/gateway` |
 | `gitops/gateway/gateway.yaml` | шлюз `lab` |
-| `gitops/gateway/routes.yaml` | маршруты `HTTPRoute` к сервисам |
+| `gitops/gateway/routes.yaml` | маршруты `HTTPRoute` к сервисам и перенаправление с HTTP на HTTPS |
+| `gitops/apps/cert-manager.yaml` | приложение `cert-manager`: Helm-чарт cert-manager (значения — в самом манифесте) |
+| `gitops/apps/cert-manager-config.yaml` | приложение `cert-manager-config`: следит за каталогом `gitops/cert-manager` |
+| `gitops/cert-manager/issuers.yaml` | центр сертификации стенда: издатели `ClusterIssuer` и корневой сертификат |
 
 Как это работает:
 
 - Приложение `root` применяет всё, что лежит в `gitops/apps`. Чтобы добавить компонент в кластер, достаточно положить туда манифест `Application` и отправить коммит в `main`.
 - У всех приложений включена автоматическая синхронизация с `prune` и `selfHeal`: ручные правки в кластере откатываются, а удалённое из Git удаляется из кластера. Исключение — `gateway-api-crds`: у него `prune` отключён, чтобы типы ресурсов не удалялись автоматически.
 - Для экономии памяти в чарте отключены Dex (SSO) и контроллер уведомлений.
-- `argocd-server` работает без TLS (`configs.params.server.insecure: true`): снаружи его публикует шлюз по HTTP.
+- `argocd-server` работает без TLS (`configs.params.server.insecure: true`): TLS завершается на шлюзе, а в сервис шлюз ходит по HTTP.
 - Доступ к репозиторию — по SSH-ключу из секрета `repo-local-infra` в namespace `argocd`. Секрет создаёт `bootstrap.sh`, в Git он не хранится.
 
 Первичную установку Argo CD, создание секрета `repo-local-infra` и применение `gitops/root.yaml` выполняет `bootstrap.sh` (см. «Развёртывание с нуля»). Дальше Argo CD обслуживает себя сам.
 
-Интерфейс Argo CD доступен из локальной сети по адресу http://argocd.lab.home.arpa (сервис `argocd-server` остаётся `ClusterIP`, наружу его публикует шлюз, см. «Входящий трафик (Gateway API)»).
+Интерфейс Argo CD доступен из локальной сети по адресу https://argocd.lab.home.arpa (сервис `argocd-server` остаётся `ClusterIP`, наружу его публикует шлюз, см. «Входящий трафик (Gateway API)»).
 
 Проверка состояния и запасной доступ к интерфейсу в обход шлюза (по HTTP: `argocd-server` работает без TLS):
 
@@ -226,23 +231,24 @@ kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:
 
 ## Входящий трафик (Gateway API)
 
-HTTP-трафик снаружи принимает один общий шлюз `lab`, реализованный Cilium (Gateway API). Отдельного ingress-контроллера в кластере нет.
+Трафик снаружи принимает один общий шлюз `lab`, реализованный Cilium (Gateway API). Сервисы доступны по HTTPS, запросы по HTTP перенаправляются на HTTPS. Отдельного ingress-контроллера в кластере нет.
 
 | Параметр | Значение |
 | --- | --- |
 | Gateway API (CRD) | v1.6.1, канал `standard` (под эту версию собран Cilium 1.20) |
 | Реализация | Cilium, `GatewayClass` `cilium` (контроллер `io.cilium/gateway-controller`) |
 | Шлюз | `Gateway` `lab` в namespace `gateway` |
-| Адрес | 192.168.91.220 — сервис `cilium-gateway-lab` типа `LoadBalancer`, адрес выдаёт MetalLB |
-| Listener | `http`: HTTP, порт 80, имена `*.lab.home.arpa`, маршруты разрешены из любых namespace |
-| TLS | нет, только HTTP |
+| Адрес | 192.168.91.220 — сервис `cilium-gateway-lab` типа `LoadBalancer` (порты 80 и 443), адрес выдаёт MetalLB |
+| Listener `http` | HTTP, порт 80, имена `*.lab.home.arpa`, маршруты только из namespace `gateway` — здесь живёт одно перенаправление на HTTPS |
+| Listener `https` | HTTPS, порт 443, имена `*.lab.home.arpa`, маршруты разрешены из любых namespace |
+| TLS | завершается на шлюзе (`mode: Terminate`), сертификат — секрет `lab-wildcard-tls` в namespace `gateway`, выпускает cert-manager (см. «Сертификаты (cert-manager)») |
 
 Опубликованные сервисы:
 
 | Адрес | `HTTPRoute` | Сервис |
 | --- | --- | --- |
-| http://argocd.lab.home.arpa | `argocd` в namespace `argocd` | `argocd-server:80` |
-| http://hubble.lab.home.arpa | `hubble` в namespace `kube-system` | `hubble-ui:80` |
+| https://argocd.lab.home.arpa | `argocd` в namespace `argocd` | `argocd-server:80` |
+| https://hubble.lab.home.arpa | `hubble` в namespace `kube-system` | `hubble-ui:80` |
 
 Как это устроено:
 
@@ -251,18 +257,78 @@ HTTP-трафик снаружи принимает один общий шлюз
 - В значениях чарта Cilium включено `gatewayAPI.enabled` (а также `enableAlpn` и `enableAppProtocol`).
 - Приложение `gateway` применяет каталог `gitops/gateway`: `gateway.yaml` (шлюз) и `routes.yaml` (все маршруты). Namespace `gateway` создаёт Argo CD (`CreateNamespace=true`); включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации — на случай, когда CRD ещё не установлены.
 - Адрес шлюза закреплён аннотацией `metallb.io/loadBalancerIPs: 192.168.91.220` (`spec.infrastructure.annotations` в `Gateway`): Cilium переносит её на создаваемый сервис.
-- Маршруты лежат в `gitops/gateway/routes.yaml`, но создаются в namespace своих сервисов (`argocd`, `kube-system`), поэтому `ReferenceGrant` не нужен.
-- Шлюз ходит в Argo CD по HTTP, поэтому `argocd-server` запущен с `server.insecure: true` (`gitops/argocd/values.yaml`).
+- Сертификат шлюза заказывается аннотацией `cert-manager.io/cluster-issuer: lab-ca` на самом `Gateway`: cert-manager по listener `https` сам создаёт `Certificate` `lab-wildcard-tls` на имя `*.lab.home.arpa` и продлевает его. Отдельного манифеста `Certificate` в Git нет.
+- `HTTPRoute` `http-to-https` в namespace `gateway` привязан к listener `http` и отвечает на любой запрос перенаправлением 301 на HTTPS. Других маршрутов на порту 80 нет: listener принимает маршруты только из своего namespace.
+- Маршруты к сервисам привязаны к listener `https` (`sectionName: https` в `parentRefs`). Они лежат в `gitops/gateway/routes.yaml`, но создаются в namespace своих сервисов (`argocd`, `kube-system`), поэтому `ReferenceGrant` не нужен.
+- TLS завершается на шлюзе, в сервисы он ходит по HTTP, поэтому `argocd-server` запущен с `server.insecure: true` (`gitops/argocd/values.yaml`).
 - Имена `*.lab.home.arpa` действуют только в локальной сети и должны разрешаться в 192.168.91.220. DNS-записи настраиваются вне репозитория.
 
-Чтобы опубликовать ещё один сервис, добавь `HTTPRoute` в `gitops/gateway/routes.yaml` (в namespace сервиса, с `parentRefs` на шлюз `lab` в namespace `gateway`) и DNS-запись для нового имени.
+Чтобы опубликовать ещё один сервис, добавь `HTTPRoute` в `gitops/gateway/routes.yaml` (в namespace сервиса, с `parentRefs` на шлюз `lab` в namespace `gateway` и `sectionName: https`) и DNS-запись для нового имени. Новый сертификат не нужен: имя вида `<сервис>.lab.home.arpa` покрывает общий сертификат шлюза.
 
 Проверка состояния:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig get gatewayclass
 kubectl --kubeconfig ./kubeconfig get gateway,httproute -A
-curl -H 'Host: argocd.lab.home.arpa' http://192.168.91.220/
+curl -I --resolve argocd.lab.home.arpa:80:192.168.91.220 http://argocd.lab.home.arpa/
+curl -I --cacert ./lab-root-ca.crt --resolve argocd.lab.home.arpa:443:192.168.91.220 https://argocd.lab.home.arpa/
+```
+
+Первый запрос должен вернуть 301 на `https://`, второй — 200.
+
+## Сертификаты (cert-manager)
+
+TLS-сертификаты выпускает cert-manager от имени собственного центра сертификации стенда. Он установлен через Argo CD двумя приложениями: `cert-manager` ставит сам cert-manager, `cert-manager-config` — издателей и корневой сертификат.
+
+| Параметр | Значение |
+| --- | --- |
+| cert-manager | v1.21.2 |
+| Helm-чарт | `cert-manager` v1.21.2 из `https://charts.jetstack.io` |
+| Namespace | `cert-manager` |
+| Имя релиза | `cert-manager` |
+| Рабочий издатель | `ClusterIssuer` `lab-ca` — подписывает сертификаты корневым |
+| Корневой сертификат | `Certificate` `lab-root-ca` (`CN=Lab Root CA`, ECDSA P-256, 10 лет), секрет `lab-root-ca` в namespace `cert-manager` |
+| Сертификат шлюза | `Certificate` `lab-wildcard-tls` в namespace `gateway`: `*.lab.home.arpa`, 90 дней, продлевается автоматически |
+
+Центр сертификации собран в три шага (`gitops/cert-manager/issuers.yaml`):
+
+1. `ClusterIssuer` `selfsigned-bootstrap` — издатель, который умеет только подписывать сам себя.
+2. `Certificate` `lab-root-ca` — корневой сертификат, выпущенный этим издателем.
+3. `ClusterIssuer` `lab-ca` — рабочий издатель, который подписывает всё остальное корневым сертификатом.
+
+Особенности:
+
+- Значения чарта заданы прямо в `gitops/apps/cert-manager.yaml` (`valuesObject`): CRD ставит сам чарт (`crds.enabled: true`), в конфигурации контроллера включено `enableGatewayAPI: true` — без этого cert-manager не смотрит на объекты `Gateway`.
+- Namespace `cert-manager` создаёт Argo CD (`CreateNamespace=true`).
+- Издатели и корневой сертификат вынесены в отдельное приложение, потому что их CRD появляются только после установки чарта. Поэтому у `cert-manager-config` включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации.
+- Центр сертификации внутренний: публичного доверия к нему нет, а ACME (Let's Encrypt) не используется — имена `*.lab.home.arpa` существуют только в локальной сети.
+- Приватный ключ корневого сертификата лежит в секрете `lab-root-ca` в кластере и в его локальной выгрузке `lab-root-ca-secret.yaml`; в Git его нет.
+
+Доверие на клиентских машинах:
+
+- Браузеры и `curl` не доверяют сертификатам стенда, пока корневой сертификат не добавлен в доверенные на клиентской машине.
+- Корневой сертификат (без ключа) выгружается так:
+
+  ```sh
+  kubectl --kubeconfig ./kubeconfig -n cert-manager get secret lab-root-ca \
+    -o jsonpath='{.data.ca\.crt}' | base64 -d > lab-root-ca.crt
+  ```
+
+- При пересоздании кластера корневой сертификат выпускается заново с новым ключом: старый `lab-root-ca.crt` перестаёт подходить, доверие нужно настроить повторно.
+
+Локальные файлы в корне репозитория (сейчас не в VCS):
+
+| Файл | Содержимое | Секрет |
+| --- | --- | --- |
+| `lab-root-ca.crt` | корневой сертификат стенда — его добавляют в доверенные на клиентских машинах | нет, но в `.gitignore` не внесён |
+| `lab-root-ca-secret.yaml` | выгрузка секрета `lab-root-ca` целиком, вместе с приватным ключом центра сертификации | да, добавлен в `.gitignore` |
+
+Проверка состояния:
+
+```sh
+kubectl --kubeconfig ./kubeconfig -n cert-manager get pods
+kubectl --kubeconfig ./kubeconfig get clusterissuers
+kubectl --kubeconfig ./kubeconfig get certificates -A
 ```
 
 ## Балансировка (MetalLB)
@@ -321,14 +387,13 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 Будут решены позже:
 
 - окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
-- TLS для входящего трафика (сейчас шлюз принимает только HTTP);
 - хранилище;
 - наблюдаемость (метрики, логи);
 - механизм запуска и сброса сценариев тренажёра.
 
 ## Статус
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB и Gateway API, приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds` и `gateway` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети доступны Argo CD (http://argocd.lab.home.arpa) и Hubble UI (http://hubble.lab.home.arpa). Прикладные компоненты и остальные открытые вопросы — впереди.
+Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API и cert-manager, приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager` и `cert-manager-config` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa) и Hubble UI (https://hubble.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Прикладные компоненты и остальные открытые вопросы — впереди.
 
 ## Журнал изменений
 
@@ -342,3 +407,5 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 - 2026-10-07 — добавлен скрипт `bootstrap.sh`, поднимающий кластер с нуля (Terraform, Cilium, Argo CD, секрет доступа к репозиторию, корневое приложение). Кластер `lab` пересоздан этим скриптом.
 - 2026-10-07 — у ВМ включено устройство QEMU guest agent: без него узлы с расширением `qemu-guest-agent` оставались в стадии `Booting`.
 - 2026-10-07 — установлен Gateway API v1.6.1 в реализации Cilium: приложения Argo CD `gateway-api-crds` и `gateway`, шлюз `lab` на 192.168.91.220 (HTTP, `*.lab.home.arpa`). Argo CD и Hubble UI опубликованы по именам `argocd.lab.home.arpa` и `hubble.lab.home.arpa`; `argocd-server` переведён в режим без TLS. В `bootstrap.sh` добавлена установка CRD Gateway API перед Cilium. Ingress перенесён из открытых вопросов в принятые решения.
+- 2026-10-08 — через Argo CD установлен cert-manager v1.21.2 (чарт `cert-manager` v1.21.2) с поддержкой Gateway API, создан собственный центр сертификации стенда: `ClusterIssuer` `selfsigned-bootstrap`, корневой сертификат `lab-root-ca`, рабочий издатель `lab-ca`.
+- 2026-10-08 — шлюз `lab` переведён на HTTPS: добавлен listener `https` (порт 443) с сертификатом `*.lab.home.arpa` от `lab-ca`, маршруты `argocd` и `hubble` привязаны к нему, HTTP оставлен только для перенаправления на HTTPS (`HTTPRoute` `http-to-https`). TLS для входящего трафика перенесён из открытых вопросов в принятые решения.
