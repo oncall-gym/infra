@@ -59,10 +59,11 @@ resource "proxmox_virtual_environment_vm" "node" {
     dedicated = each.value.memory
   }
 
-  # Агент выключен, чтобы Terraform не ждал его ответа, пока Talos
-  # загружена с ISO. Адреса нод заданы явно, агент для этого не нужен.
+  # В образе Talos есть расширение qemu-guest-agent: без устройства агента
+  # его служба не стартует, и нода навсегда остаётся в стадии Booting.
   agent {
     enabled = true
+    timeout = "2m"
   }
 
   network_device {
@@ -103,7 +104,7 @@ data "talos_machine_configuration" "node" {
   machine_secrets  = talos_machine_secrets.this.machine_secrets
   talos_version    = var.talos_version
 
-  config_patches = [
+  config_patches = concat([
     # С Talos 1.14 установка описывается отдельным документом,
     # а не полем machine.install.
     yamlencode({
@@ -126,7 +127,22 @@ data "talos_machine_configuration" "node" {
       hostname   = "talos-${each.key}"
       auto       = "off"
     }),
-  ]
+    ],
+    # Cilium вместо встроенных Flannel и kube-proxy. Это настройки кластера,
+    # поэтому они идут только в конфигурацию управляющей ноды.
+    each.value.role == "controlplane" ? [
+      yamlencode({
+        apiVersion = "v1alpha1"
+        kind       = "KubeFlannelCNIConfig"
+        "$patch"   = "delete"
+      }),
+      yamlencode({
+        apiVersion = "v1alpha1"
+        kind       = "KubeProxyConfig"
+        enabled    = false
+      }),
+    ] : []
+  )
 }
 
 # Аналог `talosctl apply-config --insecure`
