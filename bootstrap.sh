@@ -25,6 +25,8 @@ helm upgrade --install cilium cilium/cilium \
   --namespace kube-system --version "$CILIUM_VERSION" \
   -f gitops/cilium/values.yaml
 
+echo "Жду регистрации нод..."
+until [ "$(kubectl get nodes --no-headers 2>/dev/null | wc -l)" -ge 3 ]; do sleep 5; done
 kubectl wait --for=condition=Ready nodes --all --timeout=10m
 
 helm upgrade --install argocd argo/argo-cd \
