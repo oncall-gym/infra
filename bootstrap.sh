@@ -9,6 +9,8 @@ GATEWAY_API_VERSION="v1.6.1" # та же, что в gitops/apps/gateway-api-crds
 REPO_URL="git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git"
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/argocd-deploy-key}"
 CA_SECRET="${CA_SECRET:-$HOME/.lab/lab-root-ca-secret.json}"
+AGE_KEY="${AGE_KEY:-$HOME/.lab/age.key}"
+[ -f "$AGE_KEY" ] || { echo "Не найден ключ age: $AGE_KEY" >&2; exit 1; }
 
 # Проверяем всё необходимое до того, как что-то создавать
 for cmd in terraform kubectl helm jq; do
@@ -93,6 +95,11 @@ if [ -s "$CA_SECRET" ]; then
 else
   echo "Сохранённого корневого сертификата нет, cert-manager создаст новый"
 fi
+
+# Ключ, которым оператор расшифровывает секреты из Git
+kubectl create namespace sops-secrets-operator --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n sops-secrets-operator create secret generic sops-age-key-file \
+  --from-file=key="$AGE_KEY" --dry-run=client -o yaml | kubectl apply -f -
 
 # С этого момента Argo CD ставит всё остальное из Git
 kubectl apply -f gitops/root.yaml
