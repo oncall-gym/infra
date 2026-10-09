@@ -8,6 +8,7 @@ notifications:
   enabled: false
 
 configs:
+  admin.enabled: "false"
   params:
     server.insecure: true
   cm:
