@@ -8,11 +8,11 @@ notifications:
   enabled: false
 
 configs:
-  admin.enabled: "false"
   params:
     server.insecure: true
   cm:
-    url: https://argocd.lab.home.arpa
+   admin.enabled: "false"
+   url: https://argocd.lab.home.arpa
     dex.config: |
       connectors:
         - type: github
