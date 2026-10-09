@@ -1,9 +1,27 @@
-# Экономим память: на стенде не нужны SSO и уведомления
+global:
+  domain: argocd.lab.home.arpa
+
+  # Экономим память: на стенде не нужны SSO и уведомления
 dex:
-  enabled: false
+  enabled: true 
 notifications:
   enabled: false
 
 configs:
   params:
     server.insecure: true
+  cm:
+    url: https://argocd.lab.home.arpa
+    dex.config: |
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: $argocd-github-oauth:clientID
+            clientSecret: $argocd-github-oauth:clientSecret
+  rbac:
+    policy.default: ""
+    scopes: "[groups, email]"
+    policy.csv: |
+      g, admin@example.com, role:admin
