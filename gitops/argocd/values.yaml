@@ -1,7 +1,7 @@
 global:
   domain: argocd.lab.home.arpa
 
-  # Экономим память: на стенде не нужны SSO и уведомления
+# Экономим память: на стенде не нужны уведомления
 dex:
   enabled: true 
 notifications:
@@ -11,8 +11,8 @@ configs:
   params:
     server.insecure: true
   cm:
-   admin.enabled: "false"
-   url: https://argocd.lab.home.arpa
+    admin.enabled: "false"
+    url: https://argocd.lab.home.arpa
     dex.config: |
       connectors:
         - type: github
