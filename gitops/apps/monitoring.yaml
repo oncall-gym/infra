@@ -32,7 +32,7 @@ spec:
           enabled: false
         kubeScheduler:
           enabled: false
-        kubeControllManager:
+        kubeControllerManager:
           enabled: false
         kubeProxy:
           enabled: false
