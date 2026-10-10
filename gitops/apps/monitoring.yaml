@@ -1,0 +1,68 @@
+# Метрики, алерты и Grafana одним чартом: VictoriaMetrics вместо Prometheus,
+# потому что при той же совместимости он заметно экономнее по памяти.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://victoriametrics.github.io/helm-charts/
+    chart: victoria-metrics-k8s-stack
+    targetRevision: 0.95.2 # helm search repo vm/victoria-metrics-k8s-stack
+    helm:
+      releaseName: vmks
+      valuesObject:
+        fullnameOverride: vmks
+
+        # Хранилище метрик. Постоянных томов в кластере пока нет, поэтому
+        # данные живут, пока жив под (emptyDir). После появления CSI заменим
+        # на нормальный том.
+        vmsingle:
+          spec:
+            retentionPeriod: 7d
+            storage: null
+
+        # Конфигурация Alertmanager целиком лежит в секрете из SOPS
+        alertmanager:
+          spec:
+            configSecret: alertmanager-config
+
+        # На Talos эти компоненты слушают только localhost, а kube-proxy
+        # заменён Cilium. Без отключения были бы ложные алерты «компонент упал».
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeProxy:
+          enabled: false
+
+        grafana:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  # Пароль Grafana генерируется при каждой отрисовке чарта; без этого
+  # приложение было бы вечно OutOfSync (так рекомендует документация чарта)
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: vmks-grafana
+      namespace: monitoring
+      jsonPointers:
+        - /data/admin-password
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true # описания типов у оператора слишком большие
+      - RespectIgnoreDifferences=true
+    # node-exporter читает данные хоста, Talos по умолчанию это запрещает
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
