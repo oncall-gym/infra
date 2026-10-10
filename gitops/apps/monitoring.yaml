@@ -24,10 +24,10 @@ spec:
             retentionPeriod: 7d
             storageDataPath: /storage
             volumes:
-              - name: storage
+              - name: data
                 emptyDir: {}
             volumeMounts:
-              - name: storage
+              - name: data
                 mountPath: /storage
 
         # Конфигурация Alertmanager целиком лежит в секрете из SOPS
