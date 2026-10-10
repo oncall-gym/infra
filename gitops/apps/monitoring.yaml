@@ -22,6 +22,13 @@ spec:
         vmsingle:
           spec:
             retentionPeriod: 7d
+            storageDataPath: /vm-data
+            volumes:
+              - name: vm-data
+                emptyDir: {}
+            volumeMounts:
+              - name: vm-data
+                mountPath: /vm-data
             storage: null
 
         # Конфигурация Alertmanager целиком лежит в секрете из SOPS
