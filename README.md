@@ -29,6 +29,7 @@
 | TLS и сертификаты | cert-manager v1.21.2 с собственным центром сертификации стенда (`ClusterIssuer` `lab-ca`); TLS завершается на шлюзе, сертификат — `*.lab.home.arpa` |
 | Секреты в Git | SOPS с ключом age: зашифрованные объекты `SopsSecret` в `gitops/secrets`, в кластере их расшифровывает sops-secrets-operator 0.21.2 |
 | Наблюдаемость (метрики и алерты) | Чарт `victoria-metrics-k8s-stack` 0.95.2: VictoriaMetrics v1.153.0 вместо Prometheus, Alertmanager (уведомления по почте), Grafana 13.2.3 на https://grafana.lab.home.arpa |
+| Резервное копирование etcd | `talos-backup` (`CronJob` в кластере): снимок etcd каждые 3 часа, сжатие zstd и шифрование age, выгрузка в бакет `lab-etcd-backup-2a7416` в Object Storage cloud.ru; восстановление — по runbook `docs/runbooks/etcd-restore.md` |
 
 ## Сеть узлов
 
@@ -89,6 +90,8 @@ talosctl --talosconfig ./talosconfig -n 192.168.91.201 version
 | `.envrc` | окружение для direnv: пути к конфигам и профиль AWS, без секретов (см. «Локальное окружение (direnv)») | да |
 | `.envrc.local` | личные и секретные настройки direnv: токен Proxmox из keyring | нет |
 | `cloud/` | отдельная Terraform-конфигурация бакетов cloud.ru (см. «Облачное хранилище (cloud.ru)») | да |
+| `docs/runbooks/etcd-restore.md` | runbook восстановления etcd из снимка (см. «Резервное копирование etcd») | да |
+| `.restore/` | рабочий каталог для восстановления etcd: скачанные и расшифрованные снимки | нет |
 
 Особенности конфигурации:
 
@@ -97,6 +100,7 @@ talosctl --talosconfig ./talosconfig -n 192.168.91.201 version
 - Имена узлов задаются документом `HostnameConfig`: `talos-<ключ ноды>`.
 - У ВМ включено устройство QEMU guest agent (таймаут ожидания — 2 минуты). В образе Talos есть расширение `qemu-guest-agent`: без устройства агента его служба не стартует, и узел навсегда остаётся в стадии `Booting`.
 - Встроенные Flannel и kube-proxy отключены под Cilium: в machine config control plane добавлены удаление документа `KubeFlannelCNIConfig` и `KubeProxyConfig` с `enabled: false`. Это настройки кластера, поэтому в конфигурацию worker-узлов они не попадают.
+- Там же, в machine config control plane, включён доступ к Talos API из кластера — документ `KubeTalosAPIAccessConfig`: только для подов из namespace `talos-backup` и только с ролью `os:etcd:backup`. Через него `talos-backup` снимает снимки etcd (см. «Резервное копирование etcd»).
 - Секреты кластера (`talos_machine_secrets`) и сгенерированные machine config хранятся только в state; отдельных файлов `controlplane.yaml` и `worker.yaml` больше нет.
 - State удалённый: лежит в бакете `lab-tfstate-2a7416` в Object Storage cloud.ru под ключом `talos/terraform.tfstate` (`backend.tf`). В бакете включено версионирование, так что испорченный state можно откатить. От одновременных запусков защищает блокировка `use_lockfile`: на время операции рядом со state создаётся файл `.tflock`.
 - Для доступа к state нужен профиль AWS CLI `cloudru` (см. «Облачное хранилище (cloud.ru)»): без него не работают `terraform init`, `plan` и `apply`.
@@ -154,7 +158,7 @@ terraform output -raw talosconfig > talosconfig
 | Бакет | Назначение | Настройки |
 | --- | --- | --- |
 | `lab-tfstate-2a7416` | state Terraform: `talos/terraform.tfstate` (кластер) и `cloud/terraform.tfstate` (сами бакеты) | версионирование |
-| `lab-etcd-backup-2a7416` | снимки etcd | версионирование; Object Lock: 14 дней в режиме `GOVERNANCE`; правило жизненного цикла `expire-old`: объекты удаляются через 30 дней, прежние версии — через 7 дней |
+| `lab-etcd-backup-2a7416` | снимки etcd (префикс `etcd/`, см. «Резервное копирование etcd») | версионирование; Object Lock: 14 дней в режиме `GOVERNANCE`; правило жизненного цикла `expire-old`: объекты удаляются через 30 дней, прежние версии — через 7 дней |
 
 Файлы:
 
@@ -171,7 +175,7 @@ terraform output -raw talosconfig > talosconfig
 - Правило жизненного цикла записывается не ресурсом `aws_s3_bucket_lifecycle_configuration`, а командой AWS CLI из `terraform_data` `etcd_lifecycle`: ресурс провайдера ждёт в ответе поля, которых S3 cloud.ru не возвращает. При изменении JSON правила команда выполняется заново. Поэтому для `terraform apply` в `cloud/` нужна утилита `aws`.
 - Бакет для state создаёт эта же конфигурация, поэтому `cloud/backend.tf` добавлен уже после создания бакетов: сначала state был локальным, затем перенесён в бакет.
 - Имена бакетов записаны в `backend.tf` и `cloud/backend.tf` строкой: backend не умеет читать выходы Terraform. Если бакет пересоздать, суффикс изменится, и имя нужно поправить в обоих файлах.
-- Бакет для снимков etcd готов, но сами снимки пока никто не делает: механизм резервного копирования etcd не выбран (см. «Открытые вопросы»).
+- В бакет для снимков etcd пишет `talos-backup` из кластера (см. «Резервное копирование etcd»). У него отдельные ключи доступа — сервисного аккаунта cloud.ru `sa-etcd-backup`. Профиль `cloudru` работает с ключами сервисного аккаунта `sa-lab-admin`. Оба сервисных аккаунта и их ключи заведены в консоли cloud.ru: в Terraform их нет.
 
 Использование:
 
@@ -301,7 +305,12 @@ kubectl --kubeconfig ./kubeconfig -n kube-system port-forward svc/hubble-ui 1200
 | `gitops/apps/platform-secrets.yaml` | приложение `platform-secrets`: следит за каталогом `gitops/secrets` |
 | `gitops/secrets/argocd-github-oauth.enc.yaml` | зашифрованный `SopsSecret`: данные приложения GitHub OAuth для входа в Argo CD |
 | `gitops/secrets/alertmanager-config.enc.yaml` | зашифрованный `SopsSecret`: конфигурация Alertmanager |
+| `gitops/secrets/talos-backup-s3.enc.yaml` | зашифрованный `SopsSecret`: ключи доступа к бакету со снимками etcd |
 | `gitops/apps/monitoring.yaml` | приложение `monitoring`: Helm-чарт `victoria-metrics-k8s-stack` (значения — в самом манифесте) |
+| `gitops/apps/talos-backup.yaml` | приложение `talos-backup`: следит за каталогом `gitops/talos-backup` |
+| `gitops/talos-backup/cronjob.yaml` | `CronJob` `talos-backup`: снимки etcd по расписанию |
+| `gitops/talos-backup/talos-serviceaccount.yaml` | `ServiceAccount` Talos (`talos.dev/v1alpha1`): доступ к Talos API с ролью `os:etcd:backup` |
+| `gitops/talos-backup/alerts.yaml` | `VMRule` `talos-backup`: алерты на устаревший или отсутствующий снимок |
 
 Как это работает:
 
@@ -468,6 +477,7 @@ kubectl --kubeconfig ./kubeconfig get certificates -A
 | --- | --- | --- | --- |
 | `argocd-github-oauth.enc.yaml` | `argocd-github-oauth` в namespace `argocd` | `argocd-github-oauth` | `clientID` и `clientSecret` приложения GitHub OAuth (см. «Вход в Argo CD») |
 | `alertmanager-config.enc.yaml` | `alertmanager-config` в namespace `monitoring` | `alertmanager-config` | конфигурация Alertmanager, ключ `alertmanager.yaml` (см. «Наблюдаемость (мониторинг)») |
+| `talos-backup-s3.enc.yaml` | `talos-backup-s3` в namespace `talos-backup` | `talos-backup-s3` | `AWS_ACCESS_KEY_ID` и `AWS_SECRET_ACCESS_KEY` сервисного аккаунта `sa-etcd-backup` для выгрузки снимков etcd (см. «Резервное копирование etcd») |
 
 Как это устроено:
 
@@ -497,7 +507,7 @@ kubectl --kubeconfig ./kubeconfig -n sops-secrets-operator get pods
 kubectl --kubeconfig ./kubeconfig get sopssecrets -A
 ```
 
-У обоих объектов `SopsSecret` должен быть статус `Healthy`.
+У всех объектов `SopsSecret` должен быть статус `Healthy`.
 
 ## Наблюдаемость (мониторинг)
 
@@ -545,6 +555,55 @@ kubectl --kubeconfig ./kubeconfig -n monitoring get secret vmks-grafana \
 ```sh
 kubectl --kubeconfig ./kubeconfig -n monitoring get pods
 kubectl --kubeconfig ./kubeconfig -n monitoring get vmsingle,vmagent,vmalert,vmalertmanager
+```
+
+## Резервное копирование etcd
+
+Снимки etcd снимает [talos-backup](https://github.com/siderolabs/talos-backup) — утилита Sidero Labs, которая работает в кластере как `CronJob`, получает снимок через Talos API и выгружает его в S3. Манифесты — в каталоге `gitops/talos-backup`, приложение Argo CD — `talos-backup`.
+
+| Параметр | Значение |
+| --- | --- |
+| Образ | `ghcr.io/siderolabs/talos-backup:v0.1.0-beta.3-10-gb9fd478` |
+| Namespace | `talos-backup` |
+| Расписание | `15 */3 * * *` — каждые 3 часа; пропущенный запуск догоняется в течение часа, параллельные запуски запрещены |
+| Куда | бакет `lab-etcd-backup-2a7416`, ключи вида `etcd/lab-<время в UTC>.snap.zst.age` |
+| Обработка | сжатие zstd, затем шифрование age отдельным ключом резервных копий |
+| Срок хранения | 30 дней; первые 14 дней снимок нельзя удалить или перезаписать (Object Lock, см. «Облачное хранилище (cloud.ru)») |
+| RPO | до 3 часов (интервал между снимками) |
+| Восстановление | runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md), последняя проверка — 2026-10-11 |
+
+Как это устроено:
+
+- Доступ к Talos API из пода разрешён документом `KubeTalosAPIAccessConfig` в machine config control plane (`main.tf`): только namespace `talos-backup` и только роль `os:etcd:backup`. Ничего, кроме снимка etcd, с этим доступом сделать нельзя.
+- Объект `ServiceAccount` Talos (`talos.dev/v1alpha1`, `talos-serviceaccount.yaml`) запрашивает эту роль. Talos создаёт по нему секрет `talos-backup-secrets` с конфигом для доступа к API; он смонтирован в под как `/var/run/secrets/talos.dev`.
+- Ключи доступа к бакету лежат в секрете `talos-backup-s3`, который sops-secrets-operator создаёт из `gitops/secrets/talos-backup-s3.enc.yaml` (см. «Секреты (SOPS)»). Это ключи сервисного аккаунта cloud.ru `sa-etcd-backup`.
+- Снимок шифруется публичным ключом age, записанным в `cronjob.yaml` (`AGE_RECIPIENT_PUBLIC_KEY`). Это отдельный ключ, не тот, которым зашифрованы секреты в Git. Приватный ключ лежит только локально в `~/.lab/etcd-backup.age.key` и в Bitwarden, в кластере его нет: с доступом к кластеру или к бакету снимок не прочитать. Если ключ потерять, снимки расшифровать будет нечем.
+- Под работает без прав root, со сброшенными capabilities; запрошено 50m CPU и 64 МиБ памяти, предел памяти — 512 МиБ. Задание прерывается через 15 минут, повторных попыток — две.
+- Снимок занимает около 27 МБ, после сжатия и шифрования — около 3 МБ.
+
+Алерты (`VMRule` `talos-backup` в namespace `monitoring`, `gitops/talos-backup/alerts.yaml`):
+
+| Алерт | Условие |
+| --- | --- |
+| `EtcdBackupTooOld` | последний успешный снимок старше 16 часов (в течение 15 минут). Порог выше интервала, потому что кластер выключается на ночь |
+| `EtcdBackupNeverSucceeded` | у `CronJob` в течение 12 часов не было ни одного успешного запуска |
+
+Оба — уровня `warning` и приходят по почте. Упавшее задание дополнительно ловит стандартный алерт `KubeJobFailed` из чарта мониторинга.
+
+Восстановление:
+
+- Порядок действий — в runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md): выбор и расшифровка снимка, очистка раздела `EPHEMERAL` на control plane, `talosctl bootstrap --recover-from`, перезапуск Cilium, уборка устаревших объектов, проверка.
+- Снимки скачиваются и расшифровываются в каталоге `.restore/` в корне репозитория (внесён в `.gitignore`). Расшифрованный снимок содержит все секреты кластера: после восстановления его нужно удалить.
+- Снимок подходит только к кластеру с прежними секретами Talos (они лежат в state Terraform). Если кластер пересоздан с новыми секретами, сертификаты узлов не совпадут со снимком.
+- После восстановления обязательно перезапусти Cilium на всех узлах (`kubectl -n kube-system rollout restart ds/cilium`): пока API-сервер недоступен, агенты на worker-узлах теряют адрес сервиса `kubernetes` и сами его не возвращают. Узлы при этом остаются `Ready`, приложения Argo CD — `Healthy`, а поды на worker-узлах не достают до API.
+- Учебное восстановление 2026-10-11 (очистка `EPHEMERAL` на `talos-cp1`, снимок из S3): control plane вернулся за 5 минут, полностью рабочее состояние — через 40 минут вместе с диагностикой. По его итогам в runbook добавлены перезапуск Cilium и уборка устаревших объектов.
+
+Проверка состояния и запуск снимка вручную:
+
+```sh
+kubectl --kubeconfig ./kubeconfig -n talos-backup get cronjob,jobs
+kubectl --kubeconfig ./kubeconfig -n talos-backup create job --from=cronjob/talos-backup manual-$(date +%s)
+aws --profile cloudru --endpoint-url https://s3.cloud.ru s3 ls s3://lab-etcd-backup-2a7416/etcd/
 ```
 
 ## Балансировка (MetalLB)
@@ -604,13 +663,12 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 
 - окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
 - хранилище в кластере (пока его нет, метрики VictoriaMetrics лежат в `emptyDir`);
-- резервное копирование etcd (бакет `lab-etcd-backup-2a7416` создан, механизм снятия снимков не выбран);
 - сбор логов (метрики и алерты уже есть, см. «Наблюдаемость (мониторинг)»);
 - механизм запуска и сброса сценариев тренажёра.
 
 ## Статус
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator и стек мониторинга на VictoriaMetrics. Приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets` и `monitoring` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa, вход через GitHub), Hubble UI (https://hubble.lab.home.arpa) и Grafana (https://grafana.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Алерты приходят по почте. State Terraform хранится в Object Storage cloud.ru; там же создан бакет под снимки etcd, но сами снимки пока не делаются. Прикладные компоненты и остальные открытые вопросы — впереди.
+Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator, стек мониторинга на VictoriaMetrics и резервное копирование etcd (`talos-backup`). Приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets`, `monitoring` и `talos-backup` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa, вход через GitHub), Hubble UI (https://hubble.lab.home.arpa) и Grafana (https://grafana.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Алерты приходят по почте. State Terraform хранится в Object Storage cloud.ru; туда же каждые 3 часа выгружаются зашифрованные снимки etcd, восстановление из снимка проверено 2026-10-11. Прикладные компоненты и остальные открытые вопросы — впереди.
 
 ## Журнал изменений
 
@@ -634,3 +692,5 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 - 2026-10-11 — в Object Storage cloud.ru созданы бакеты `lab-tfstate-2a7416` (state Terraform, версионирование) и `lab-etcd-backup-2a7416` (снимки etcd: версионирование, Object Lock на 14 дней, удаление через 30 дней). Они описаны отдельной Terraform-конфигурацией в каталоге `cloud/`.
 - 2026-10-11 — state Terraform перенесён из локальных файлов в бакет `lab-tfstate-2a7416`: кластер — ключ `talos/terraform.tfstate` (`backend.tf`), бакеты — `cloud/terraform.tfstate` (`cloud/backend.tf`), блокировка через `use_lockfile`.
 - 2026-10-11 — добавлен `.envrc` для direnv: `KUBECONFIG`, `TALOSCONFIG`, `SOPS_AGE_KEY_FILE`, `AWS_PROFILE` и `TF_INPUT`. Токен Proxmox подставляется из системного keyring через `.envrc.local` (в `.gitignore`), в keyring его кладёт скрипт `lab-secrets-sync` из Bitwarden.
+- 2026-10-11 — настроено резервное копирование etcd: `talos-backup` (`CronJob` в namespace `talos-backup`, приложение Argo CD `talos-backup`) каждые 3 часа снимает снимок, сжимает его zstd, шифрует age и выгружает в бакет `lab-etcd-backup-2a7416`. В machine config control plane добавлен `KubeTalosAPIAccessConfig` (роль `os:etcd:backup` для namespace `talos-backup`), ключи доступа к бакету — в зашифрованном секрете `talos-backup-s3`, алерты `EtcdBackupTooOld` и `EtcdBackupNeverSucceeded`. Резервное копирование etcd перенесено из открытых вопросов в принятые решения.
+- 2026-10-11 — проведено учебное восстановление etcd из снимка, по его итогам написан runbook `docs/runbooks/etcd-restore.md`. В `.gitignore` добавлен каталог `.restore/`.
