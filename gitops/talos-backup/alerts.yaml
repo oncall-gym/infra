@@ -1,0 +1,27 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: talos-backup
+  namespace: monitoring
+spec:
+  groups:
+    - name: talos-backup
+      rules:
+        # Порог 16 ч: кластер выключается на ночь, иначе алерт приходил бы каждое утро
+        - alert: EtcdBackupTooOld
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{namespace="talos-backup", cronjob="talos-backup"} > 16 * 3600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Последний успешный бэкап etcd старше 16 часов"
+            description: "Проверь: kubectl -n talos-backup get jobs; логи последнего пода."
+        - alert: EtcdBackupNeverSucceeded
+          expr: |
+            absent(kube_cronjob_status_last_successful_time{namespace="talos-backup", cronjob="talos-backup"})
+          for: 12h
+          labels:
+            severity: warning
+          annotations:
+            summary: "У CronJob talos-backup ещё не было ни одного успешного запуска"

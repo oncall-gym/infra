@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: talos-backup
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git
+    targetRevision: main
+    path: gitops/talos-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: talos-backup
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true

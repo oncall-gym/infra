@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: talos-backup
+  namespace: talos-backup
+spec:
+  schedule: "15 */3 * * *"        # каждые 3 часа
+  concurrencyPolicy: Forbid        # не запускать новый, пока идёт предыдущий
+  startingDeadlineSeconds: 3600    # пропущенный запуск догнать в течение часа
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: talos-backup
+              image: ghcr.io/siderolabs/talos-backup:v0.1.0-beta.3-10-gb9fd478
+              workingDir: /tmp
+              envFrom:
+                - secretRef:
+                    name: talos-backup-s3      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+              env:
+                - name: AWS_REGION
+                  value: ru-central-1
+                - name: CUSTOM_S3_ENDPOINT
+                  value: https://s3.cloud.ru
+                - name: USE_PATH_STYLE
+                  value: "true"
+                - name: BUCKET
+                  value: lab-etcd-backup-2a7416
+                - name: S3_PREFIX
+                  value: etcd
+                - name: CLUSTER_NAME
+                  value: lab
+                - name: AGE_RECIPIENT_PUBLIC_KEY
+                  value: age1alzza8xucjt8lgc95k9ersvvenx6f0dxz75cuh7hc4unzx3lmf9qkj4jha                  # открытый ключ из шага 0
+                - name: ENABLE_COMPRESSION
+                  value: "true"                 # zstd перед шифрованием
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {memory: 512Mi}
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+                - {name: talos, mountPath: /.talos}
+                - {name: talos-secrets, mountPath: /var/run/secrets/talos.dev}
+          volumes:
+            - {name: tmp, emptyDir: {}}
+            - {name: talos, emptyDir: {}}
+            - name: talos-secrets
+              secret:
+                secretName: talos-backup-secrets

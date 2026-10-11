@@ -141,6 +141,13 @@ data "talos_machine_configuration" "node" {
         kind       = "KubeProxyConfig"
         enabled    = false
       }),
+      # Поды из namespace talos-backup могут снимать снимки etcd через Talos API, и больше ничего
+      yamlencode({
+        apiVersion                  = "v1alpha1"
+        kind                        = "KubeTalosAPIAccessConfig"
+        allowedRoles                = ["os:etcd:backup"]
+        allowedKubernetesNamespaces = ["talos-backup"]
+      }),
     ] : []
   )
 }
