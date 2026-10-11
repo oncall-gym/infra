@@ -17,6 +17,9 @@
 | Состав кластера | 1 control plane (master) и 2 worker-узла |
 | IP-адреса узлов | Статически прописаны на роутере (см. «Сеть узлов») |
 | Провижининг | Terraform: провайдеры `bpg/proxmox` (ВМ) и `siderolabs/talos` (конфигурация и bootstrap Talos) |
+| State Terraform | Удалённый: бакет `lab-tfstate-2a7416` в Object Storage cloud.ru (S3) с версионированием и блокировкой через `use_lockfile` |
+| Облачные ресурсы | Object Storage cloud.ru: бакеты для state Terraform и для снимков etcd, описаны в Terraform в каталоге `cloud/` |
+| Локальное окружение | direnv: `.envrc` (в Git, без секретов) задаёт пути к конфигам и профиль AWS, токен Proxmox подставляется из системного keyring |
 | Развёртывание с нуля | Скрипт `bootstrap.sh`: Terraform, затем CRD Gateway API и Cilium, затем Argo CD; корневой сертификат стенда восстанавливается из локальной копии, ключ age для расшифровки секретов кладётся в кластер |
 | Сеть кластера (CNI) | Cilium v1.20.2 вместо встроенных Flannel и kube-proxy, с Hubble (relay и UI) |
 | Доставка приложений | Argo CD v3.5.3 (GitOps, схема app of apps), манифесты — в каталоге `gitops/` |
@@ -76,12 +79,16 @@ talosctl --talosconfig ./talosconfig -n 192.168.91.201 version
 | `main.tf` | провайдеры, ВМ, секреты и конфигурация Talos, bootstrap | да |
 | `variables.tf` | переменные (адрес Proxmox, хранилище, ISO, версия Talos, описание нод) | да |
 | `outputs.tf` | выходы `kubeconfig` и `talosconfig` (sensitive) | да |
+| `backend.tf` | хранение state в S3 cloud.ru: бакет `lab-tfstate-2a7416`, ключ `talos/terraform.tfstate` | да |
 | `.terraform.lock.hcl` | зафиксированные версии провайдеров | да |
 | `terraform.tfvars` | installer image и параметры нод (VMID, IP, MAC, CPU, RAM) | нет |
-| `terraform.tfstate`, `terraform.tfstate.backup` | state; содержит секреты кластера | нет |
+| `terraform.tfstate`, `terraform.tfstate.backup` | остатки локального state после переноса в S3: первый файл пуст, во втором — последняя локальная копия state с секретами кластера | нет |
 | `kubeconfig`, `talosconfig` | клиентские конфиги, выгруженные из выходов Terraform | нет |
 | `bootstrap.sh` | развёртывание кластера с нуля (см. «Развёртывание с нуля») | да |
 | `.sops.yaml` | правила шифрования `sops` для файлов `*.enc.yaml` (см. «Секреты (SOPS)») | да |
+| `.envrc` | окружение для direnv: пути к конфигам и профиль AWS, без секретов (см. «Локальное окружение (direnv)») | да |
+| `.envrc.local` | личные и секретные настройки direnv: токен Proxmox из keyring | нет |
+| `cloud/` | отдельная Terraform-конфигурация бакетов cloud.ru (см. «Облачное хранилище (cloud.ru)») | да |
 
 Особенности конфигурации:
 
@@ -91,13 +98,12 @@ talosctl --talosconfig ./talosconfig -n 192.168.91.201 version
 - У ВМ включено устройство QEMU guest agent (таймаут ожидания — 2 минуты). В образе Talos есть расширение `qemu-guest-agent`: без устройства агента его служба не стартует, и узел навсегда остаётся в стадии `Booting`.
 - Встроенные Flannel и kube-proxy отключены под Cilium: в machine config control plane добавлены удаление документа `KubeFlannelCNIConfig` и `KubeProxyConfig` с `enabled: false`. Это настройки кластера, поэтому в конфигурацию worker-узлов они не попадают.
 - Секреты кластера (`talos_machine_secrets`) и сгенерированные machine config хранятся только в state; отдельных файлов `controlplane.yaml` и `worker.yaml` больше нет.
-- State локальный, лежит в корне репозитория.
+- State удалённый: лежит в бакете `lab-tfstate-2a7416` в Object Storage cloud.ru под ключом `talos/terraform.tfstate` (`backend.tf`). В бакете включено версионирование, так что испорченный state можно откатить. От одновременных запусков защищает блокировка `use_lockfile`: на время операции рядом со state создаётся файл `.tflock`.
+- Для доступа к state нужен профиль AWS CLI `cloudru` (см. «Облачное хранилище (cloud.ru)»): без него не работают `terraform init`, `plan` и `apply`.
 
-Использование:
+Использование (переменные окружения выставляет direnv, см. «Локальное окружение (direnv)»):
 
 ```sh
-export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'
-
 terraform init
 terraform plan
 terraform apply
@@ -106,7 +112,76 @@ terraform output -raw kubeconfig > kubeconfig
 terraform output -raw talosconfig > talosconfig
 ```
 
-Токен API Proxmox передаётся только через переменную окружения `TF_VAR_proxmox_api_token` и в файлы не записывается.
+Токен API Proxmox передаётся только через переменную окружения `TF_VAR_proxmox_api_token` и в файлы репозитория не записывается. Без direnv её нужно выставить вручную: `export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'`.
+
+## Локальное окружение (direnv)
+
+Переменные окружения для работы со стендом выставляет [direnv](https://direnv.net/) при входе в каталог репозитория. После клонирования и после каждого изменения `.envrc` его нужно разрешить командой `direnv allow`.
+
+Файл `.envrc` лежит в Git: в нём нет секретов, только пути к ним.
+
+| Переменная | Значение | Зачем |
+| --- | --- | --- |
+| `KUBECONFIG` | `./kubeconfig` | `kubectl` и `helm` работают с кластером `lab` без флага `--kubeconfig` |
+| `TALOSCONFIG` | `./talosconfig` | `talosctl` работает без флага `--talosconfig` |
+| `SOPS_AGE_KEY_FILE` | `~/.lab/age.key` | `sops` находит ключ age (см. «Секреты (SOPS)») |
+| `AWS_PROFILE` | `cloudru` | AWS CLI и Terraform ходят в S3 cloud.ru |
+| `TF_INPUT` | `0` | Terraform не задаёт вопросов интерактивно: без токена Proxmox сразу завершается с ошибкой |
+
+Личные и секретные настройки лежат в файле `.envrc.local`, который `.envrc` подключает, если он есть. В Git он не попадает (внесён в `.gitignore`).
+
+Токен API Proxmox:
+
+- Хранится в Bitwarden, запись `terraform@pve!tf`.
+- Скрипт `lab-secrets-sync` (`~/.local/bin`, вне репозитория) копирует его из Bitwarden в системный keyring. Нужны утилиты `bw` и `secret-tool`. Скрипт запускают на новой машине и после ротации токена.
+- `.envrc.local` читает токен из keyring (`secret-tool lookup service lab key proxmox-api-token`) и выставляет `TF_VAR_proxmox_api_token`. На диске в открытом виде токен не лежит.
+- Если токена в keyring нет, direnv выводит ошибку с подсказкой: `lab-secrets-sync && direnv reload`.
+
+## Облачное хранилище (cloud.ru)
+
+Вне Proxmox у стенда есть два бакета в Object Storage cloud.ru (S3-совместимое хранилище). Они описаны отдельной Terraform-конфигурацией в каталоге `cloud/` со своим state.
+
+| Параметр | Значение |
+| --- | --- |
+| Сервис | Object Storage cloud.ru, endpoint `https://s3.cloud.ru`, регион `ru-central-1` |
+| Провайдер `hashicorp/aws` | 6.68.0 (направлен на S3 cloud.ru) |
+| Провайдер `hashicorp/random` | 3.9.1 (суффикс в именах бакетов) |
+| Доступ | профиль AWS CLI `cloudru`: настройки — в `~/.aws/config`, ключи доступа — в `~/.aws/credentials` |
+| State | тот же бакет `lab-tfstate-2a7416`, ключ `cloud/terraform.tfstate` (`cloud/backend.tf`) |
+
+Бакеты:
+
+| Бакет | Назначение | Настройки |
+| --- | --- | --- |
+| `lab-tfstate-2a7416` | state Terraform: `talos/terraform.tfstate` (кластер) и `cloud/terraform.tfstate` (сами бакеты) | версионирование |
+| `lab-etcd-backup-2a7416` | снимки etcd | версионирование; Object Lock: 14 дней в режиме `GOVERNANCE`; правило жизненного цикла `expire-old`: объекты удаляются через 30 дней, прежние версии — через 7 дней |
+
+Файлы:
+
+| Файл | Назначение |
+| --- | --- |
+| `cloud/main.tf` | провайдеры, оба бакета и их настройки, выходы `tfstate_bucket` и `etcd_backup_bucket` |
+| `cloud/backend.tf` | хранение state этой конфигурации в S3 |
+| `cloud/.terraform.lock.hcl` | зафиксированные версии провайдеров |
+
+Особенности:
+
+- У cloud.ru нет сервисов AWS STS, IAM и метаданных EC2, поэтому в провайдере и в обоих `backend.tf` отключены обращения к ним (`skip_credentials_validation`, `skip_region_validation`, `skip_requesting_account_id`, `skip_metadata_api_check`), а в backend ещё и `skip_s3_checksum`. Адресация — в стиле пути (`use_path_style`).
+- Object Lock включается только при создании бакета. 14 дней каждый снимок etcd нельзя ни удалить, ни перезаписать. Режим `GOVERNANCE` в крайнем случае позволяет администратору (`s3e.admin`) снять блокировку; в режиме `COMPLIANCE` этого не мог бы никто.
+- Правило жизненного цикла записывается не ресурсом `aws_s3_bucket_lifecycle_configuration`, а командой AWS CLI из `terraform_data` `etcd_lifecycle`: ресурс провайдера ждёт в ответе поля, которых S3 cloud.ru не возвращает. При изменении JSON правила команда выполняется заново. Поэтому для `terraform apply` в `cloud/` нужна утилита `aws`.
+- Бакет для state создаёт эта же конфигурация, поэтому `cloud/backend.tf` добавлен уже после создания бакетов: сначала state был локальным, затем перенесён в бакет.
+- Имена бакетов записаны в `backend.tf` и `cloud/backend.tf` строкой: backend не умеет читать выходы Terraform. Если бакет пересоздать, суффикс изменится, и имя нужно поправить в обоих файлах.
+- Бакет для снимков etcd готов, но сами снимки пока никто не делает: механизм резервного копирования etcd не выбран (см. «Открытые вопросы»).
+
+Использование:
+
+```sh
+cd cloud
+terraform init
+terraform plan
+terraform apply
+terraform output
+```
 
 ## Развёртывание с нуля
 
@@ -131,18 +206,17 @@ terraform output -raw talosconfig > talosconfig
 Что нужно до запуска:
 
 - установленные `terraform`, `kubectl`, `helm` и `jq`, выполненный `terraform init`;
-- заполненный `terraform.tfvars` и переменная окружения `TF_VAR_proxmox_api_token`;
+- заполненный `terraform.tfvars` и переменная окружения `TF_VAR_proxmox_api_token` (её выставляет direnv, см. «Локальное окружение (direnv)»);
+- профиль AWS CLI `cloudru` с доступом к бакету `lab-tfstate-2a7416`: в нём лежит state Terraform (см. «Облачное хранилище (cloud.ru)»);
 - ISO Talos в хранилище Proxmox (`local:iso/talos.iso`);
 - доступ к `github.com` с машины, где запускается скрипт (оттуда скачивается манифест CRD Gateway API);
 - приватный SSH-ключ доступа Argo CD к репозиторию. Путь задаётся переменной окружения `DEPLOY_KEY`, по умолчанию — `~/argocd-deploy-key`;
 - по желанию — локальная копия секрета `lab-root-ca`, чтобы сохранить прежний корневой сертификат. Путь задаётся переменной окружения `CA_SECRET`, по умолчанию — `~/.lab/lab-root-ca-secret.json`. При первом запуске без копии скрипт создаёт её сам;
 - приватный ключ age, которым зашифрованы секреты в `gitops/secrets`. Путь задаётся переменной окружения `AGE_KEY`, по умолчанию — `~/.lab/age.key`. Без него скрипт не стартует: создать ключ заново нельзя, иначе секреты из Git не расшифруются.
 
-Запуск:
+Запуск (в каталоге репозитория с разрешённым direnv; без него сначала выставь `TF_VAR_proxmox_api_token` вручную):
 
 ```sh
-export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'
-
 ./bootstrap.sh
 ```
 
@@ -529,13 +603,14 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 Будут решены позже:
 
 - окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
-- хранилище (пока его нет, метрики VictoriaMetrics лежат в `emptyDir`);
+- хранилище в кластере (пока его нет, метрики VictoriaMetrics лежат в `emptyDir`);
+- резервное копирование etcd (бакет `lab-etcd-backup-2a7416` создан, механизм снятия снимков не выбран);
 - сбор логов (метрики и алерты уже есть, см. «Наблюдаемость (мониторинг)»);
 - механизм запуска и сброса сценариев тренажёра.
 
 ## Статус
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator и стек мониторинга на VictoriaMetrics. Приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets` и `monitoring` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa, вход через GitHub), Hubble UI (https://hubble.lab.home.arpa) и Grafana (https://grafana.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Алерты приходят по почте. Прикладные компоненты и остальные открытые вопросы — впереди.
+Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator и стек мониторинга на VictoriaMetrics. Приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets` и `monitoring` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa, вход через GitHub), Hubble UI (https://hubble.lab.home.arpa) и Grafana (https://grafana.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Алерты приходят по почте. State Terraform хранится в Object Storage cloud.ru; там же создан бакет под снимки etcd, но сами снимки пока не делаются. Прикладные компоненты и остальные открытые вопросы — впереди.
 
 ## Журнал изменений
 
@@ -556,3 +631,6 @@ kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 - 2026-10-09 — добавлены правила шифрования `.sops.yaml` и приложение `platform-secrets` с каталогом `gitops/secrets`. Вход в Argo CD переведён на GitHub OAuth через Dex (секрет `argocd-github-oauth`), локальная учётная запись `admin` отключена, права выдаются в `configs.rbac`.
 - 2026-10-10 — через Argo CD установлен стек мониторинга: чарт `victoria-metrics-k8s-stack` 0.95.2 (VictoriaMetrics v1.153.0, Alertmanager, Grafana 13.2.3), приложение `monitoring`. Метрики хранятся 7 дней в `emptyDir`. Grafana опубликована по адресу https://grafana.lab.home.arpa. Конфигурация Alertmanager хранится в зашифрованном секрете `alertmanager-config`: уведомления по почте, алерты уровня `info` не отправляются. Метрики и алерты перенесены из открытых вопросов в принятые решения, сбор логов остаётся открытым.
 - 2026-10-10 — в `.gitignore` добавлена маска `*.crt`: `lab-root-ca.crt` больше не может попасть в репозиторий.
+- 2026-10-11 — в Object Storage cloud.ru созданы бакеты `lab-tfstate-2a7416` (state Terraform, версионирование) и `lab-etcd-backup-2a7416` (снимки etcd: версионирование, Object Lock на 14 дней, удаление через 30 дней). Они описаны отдельной Terraform-конфигурацией в каталоге `cloud/`.
+- 2026-10-11 — state Terraform перенесён из локальных файлов в бакет `lab-tfstate-2a7416`: кластер — ключ `talos/terraform.tfstate` (`backend.tf`), бакеты — `cloud/terraform.tfstate` (`cloud/backend.tf`), блокировка через `use_lockfile`.
+- 2026-10-11 — добавлен `.envrc` для direnv: `KUBECONFIG`, `TALOSCONFIG`, `SOPS_AGE_KEY_FILE`, `AWS_PROFILE` и `TF_INPUT`. Токен Proxmox подставляется из системного keyring через `.envrc.local` (в `.gitignore`), в keyring его кладёт скрипт `lab-secrets-sync` из Bitwarden.
