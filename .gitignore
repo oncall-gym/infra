@@ -8,3 +8,4 @@ controlplane.yaml
 worker.yaml
 lab-root-ca-secret.yaml
 *.crt
+.envrc.local
