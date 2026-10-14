@@ -1,7 +1,7 @@
 global:
   domain: argocd.lab.home.arpa
 
-# Экономим память: на стенде не нужны уведомления
+# Save memory: the lab does not need notifications. Dex stays on for GitHub login
 dex:
   enabled: true 
 notifications:
@@ -21,8 +21,12 @@ configs:
           config:
             clientID: $argocd-github-oauth:clientID
             clientSecret: $argocd-github-oauth:clientSecret
+            # Only members of the organization can log in; their teams
+            # arrive in the groups claim as <org>:<team>
+            orgs:
+              - name: oncall-gym
   rbac:
     policy.default: ""
     scopes: "[groups, email]"
     policy.csv: |
-      g, admin@example.com, role:admin
+      g, oncall-gym:admins, role:admin
