@@ -1,4 +1,4 @@
-# Типы ресурсов Gateway API. Cilium 1.20 собран под версию v1.6.1.
+# Gateway API resource types. Cilium 1.20 is built against v1.6.1.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -14,7 +14,7 @@ spec:
     server: https://kubernetes.default.svc
   syncPolicy:
     automated:
-      prune: false # типы ресурсов не удаляем автоматически
+      prune: false # never delete resource types automatically
       selfHeal: true
     syncOptions:
-      - ServerSideApply=true # описания слишком большие для обычного apply
+      - ServerSideApply=true # the definitions are too large for a regular apply

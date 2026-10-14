@@ -7,7 +7,7 @@ spec:
   groups:
     - name: talos-backup
       rules:
-        # Порог 16 ч: кластер выключается на ночь, иначе алерт приходил бы каждое утро
+        # 16 h threshold: the cluster is shut down overnight, otherwise the alert would fire every morning
         - alert: EtcdBackupTooOld
           expr: |
             time() - kube_cronjob_status_last_successful_time{namespace="talos-backup", cronjob="talos-backup"} > 16 * 3600
@@ -15,8 +15,8 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Последний успешный бэкап etcd старше 16 часов"
-            description: "Проверь: kubectl -n talos-backup get jobs; логи последнего пода."
+            summary: "The last successful etcd backup is older than 16 hours"
+            description: "Check: kubectl -n talos-backup get jobs; logs of the latest pod."
         - alert: EtcdBackupNeverSucceeded
           expr: |
             absent(kube_cronjob_status_last_successful_time{namespace="talos-backup", cronjob="talos-backup"})
@@ -24,4 +24,4 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "У CronJob talos-backup ещё не было ни одного успешного запуска"
+            summary: "The talos-backup CronJob has not had a single successful run yet"

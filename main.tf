@@ -16,15 +16,15 @@ terraform {
 provider "proxmox" {
   endpoint  = var.proxmox_endpoint
   api_token = var.proxmox_api_token
-  insecure  = true # самоподписанный сертификат Proxmox
+  insecure  = true # Proxmox uses a self-signed certificate
 }
 
 locals {
-  # Адрес первой (и пока единственной) управляющей ноды
+  # Address of the first (and so far the only) control plane node
   cp_ip = one([for n in var.nodes : n.ip if n.role == "controlplane"])
 }
 
-# ---------- Виртуальные машины ----------
+# ---------- Virtual machines ----------
 
 resource "proxmox_virtual_environment_vm" "node" {
   for_each = var.nodes
@@ -39,15 +39,15 @@ resource "proxmox_virtual_environment_vm" "node" {
   scsi_hardware   = "virtio-scsi-single"
   boot_order      = ["scsi0", "ide3"]
 
-  # UEFI вместо SeaBIOS: Talos в этом режиме ставит systemd-boot
-  # и не вызывает grub-install, на котором установка зависала.
+  # UEFI instead of SeaBIOS: in this mode Talos installs systemd-boot
+  # and does not call grub-install, where the installation used to hang.
   bios = "ovmf"
 
   efi_disk {
     datastore_id      = var.vm_datastore
     file_format       = "raw"
     type              = "4m"
-    pre_enrolled_keys = false # без ключей Secure Boot, образ Talos обычный
+    pre_enrolled_keys = false # no Secure Boot keys, the Talos image is a regular one
   }
 
   cpu {
@@ -59,8 +59,8 @@ resource "proxmox_virtual_environment_vm" "node" {
     dedicated = each.value.memory
   }
 
-  # В образе Talos есть расширение qemu-guest-agent: без устройства агента
-  # его служба не стартует, и нода навсегда остаётся в стадии Booting.
+  # The Talos image includes the qemu-guest-agent extension: without the agent device
+  # its service does not start, and the node stays in the Booting stage forever.
   agent {
     enabled = true
     timeout = "2m"
@@ -90,7 +90,7 @@ resource "proxmox_virtual_environment_vm" "node" {
 
 # ---------- Talos ----------
 
-# Секреты кластера: сертификаты, ключи, токены. Хранятся в state.
+# Cluster secrets: certificates, keys, tokens. Stored in the state.
 resource "talos_machine_secrets" "this" {
   talos_version = var.talos_version
 }
@@ -105,12 +105,12 @@ data "talos_machine_configuration" "node" {
   talos_version    = var.talos_version
 
   config_patches = concat([
-    # С Talos 1.14 установка описывается отдельным документом,
-    # а не полем machine.install.
+    # Since Talos 1.14 the installation is described by a separate document,
+    # not by the machine.install field.
     yamlencode({
       apiVersion = "v1alpha1"
       kind       = "UnattendedInstallConfig"
-      reboot     = true # перезагрузиться с диска после установки
+      reboot     = true # reboot from disk after the installation
       installer = {
         image = var.talos_installer_image
       }
@@ -128,8 +128,8 @@ data "talos_machine_configuration" "node" {
       auto       = "off"
     }),
     ],
-    # Cilium вместо встроенных Flannel и kube-proxy. Это настройки кластера,
-    # поэтому они идут только в конфигурацию управляющей ноды.
+    # Cilium instead of the built-in Flannel and kube-proxy. These are cluster settings,
+    # so they go only into the control plane node configuration.
     each.value.role == "controlplane" ? [
       yamlencode({
         apiVersion = "v1alpha1"
@@ -141,7 +141,7 @@ data "talos_machine_configuration" "node" {
         kind       = "KubeProxyConfig"
         enabled    = false
       }),
-      # Поды из namespace talos-backup могут снимать снимки etcd через Talos API, и больше ничего
+      # Pods in the talos-backup namespace can take etcd snapshots through the Talos API, and nothing else
       yamlencode({
         apiVersion                  = "v1alpha1"
         kind                        = "KubeTalosAPIAccessConfig"
@@ -152,7 +152,7 @@ data "talos_machine_configuration" "node" {
   )
 }
 
-# Аналог `talosctl apply-config --insecure`
+# Equivalent of `talosctl apply-config --insecure`
 resource "talos_machine_configuration_apply" "node" {
   for_each   = var.nodes
   depends_on = [proxmox_virtual_environment_vm.node]
@@ -162,7 +162,7 @@ resource "talos_machine_configuration_apply" "node" {
   node                        = each.value.ip
 }
 
-# Аналог `talosctl bootstrap`
+# Equivalent of `talosctl bootstrap`
 resource "talos_machine_bootstrap" "this" {
   depends_on = [talos_machine_configuration_apply.node]
 
@@ -170,7 +170,7 @@ resource "talos_machine_bootstrap" "this" {
   node                 = local.cp_ip
 }
 
-# Аналог `talosctl kubeconfig`
+# Equivalent of `talosctl kubeconfig`
 resource "talos_cluster_kubeconfig" "this" {
   depends_on = [talos_machine_bootstrap.this]
 

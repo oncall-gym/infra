@@ -1,111 +1,111 @@
 # local-infra
 
-Локальная инфраструктура для MVP тренажёра траблшутинга для DevOps.
+Local infrastructure for the MVP of a DevOps troubleshooting trainer.
 
-## Назначение
+## Purpose
 
-Репозиторий описывает окружение, на котором разворачивается и обкатывается MVP тренажёра: платформа, на которой будут подниматься учебные стенды с заранее заложенными неисправностями для отработки навыков диагностики и устранения проблем.
+This repository describes the environment where the trainer MVP is deployed and tested: a platform that will host training labs with pre-planted faults for practising diagnosis and repair.
 
-## Принятые решения
+## Decisions made
 
-| Область | Решение |
+| Area | Decision |
 | --- | --- |
-| Виртуализация | Proxmox VE 9.2.21 |
-| ОС узлов | Talos Linux v1.14.2 |
+| Virtualization | Proxmox VE 9.2.21 |
+| Node OS | Talos Linux v1.14.2 |
 | Kubernetes | v1.37.0 |
-| Имя кластера | `lab` |
-| Состав кластера | 1 control plane (master) и 2 worker-узла |
-| IP-адреса узлов | Статически прописаны на роутере (см. «Сеть узлов») |
-| Провижининг | Terraform: провайдеры `bpg/proxmox` (ВМ) и `siderolabs/talos` (конфигурация и bootstrap Talos) |
-| State Terraform | Удалённый: бакет `lab-tfstate-2a7416` в Object Storage cloud.ru (S3) с версионированием и блокировкой через `use_lockfile` |
-| Облачные ресурсы | Object Storage cloud.ru: бакеты для state Terraform и для снимков etcd, описаны в Terraform в каталоге `cloud/` |
-| Локальное окружение | direnv: `.envrc` (в Git, без секретов) задаёт пути к конфигам и профиль AWS, токен Proxmox подставляется из системного keyring |
-| Развёртывание с нуля | Скрипт `bootstrap.sh`: Terraform, затем CRD Gateway API и Cilium, затем Argo CD; корневой сертификат стенда восстанавливается из локальной копии, ключ age для расшифровки секретов кладётся в кластер |
-| Сеть кластера (CNI) | Cilium v1.20.2 вместо встроенных Flannel и kube-proxy, с Hubble (relay и UI) |
-| Доставка приложений | Argo CD v3.5.3 (GitOps, схема app of apps), манифесты — в каталоге `gitops/` |
-| Вход в Argo CD | Через GitHub (OAuth, встроенный Dex); локальная учётная запись `admin` отключена |
-| Балансировка (сервисы `LoadBalancer`) | MetalLB v0.16.1, режим L2, пул адресов 192.168.91.220–192.168.91.230 |
-| Входящий трафик (ingress) | Gateway API v1.6.1 в реализации Cilium: общий шлюз `lab` на 192.168.91.220, HTTPS (HTTP перенаправляется на HTTPS), имена `*.lab.home.arpa` |
-| TLS и сертификаты | cert-manager v1.21.2 с собственным центром сертификации стенда (`ClusterIssuer` `lab-ca`); TLS завершается на шлюзе, сертификат — `*.lab.home.arpa` |
-| Секреты в Git | SOPS с ключом age: зашифрованные объекты `SopsSecret` в `gitops/secrets`, в кластере их расшифровывает sops-secrets-operator 0.21.2 |
-| Наблюдаемость (метрики и алерты) | Чарт `victoria-metrics-k8s-stack` 0.95.2: VictoriaMetrics v1.153.0 вместо Prometheus, Alertmanager (уведомления по почте), Grafana 13.2.3 на https://grafana.lab.home.arpa |
-| Резервное копирование etcd | `talos-backup` (`CronJob` в кластере): снимок etcd каждые 3 часа, сжатие zstd и шифрование age, выгрузка в бакет `lab-etcd-backup-2a7416` в Object Storage cloud.ru; восстановление — по runbook `docs/runbooks/etcd-restore.md` |
+| Cluster name | `lab` |
+| Cluster layout | 1 control plane (master) and 2 worker nodes |
+| Node IP addresses | Statically assigned on the router (see "Node network") |
+| Provisioning | Terraform: providers `bpg/proxmox` (VMs) and `siderolabs/talos` (Talos configuration and bootstrap) |
+| Terraform state | Remote: bucket `lab-tfstate-2a7416` in cloud.ru Object Storage (S3) with versioning and locking via `use_lockfile` |
+| Cloud resources | cloud.ru Object Storage: buckets for Terraform state and for etcd snapshots, described in Terraform in the `cloud/` directory |
+| Local environment | direnv: `.envrc` (in Git, no secrets) sets the config paths and the AWS profile; the Proxmox token comes from the system keyring |
+| Deployment from scratch | The `bootstrap.sh` script: Terraform, then the Gateway API CRDs and Cilium, then Argo CD; the lab root certificate is restored from a local copy, and the age key for decrypting secrets is put into the cluster |
+| Cluster network (CNI) | Cilium v1.20.2 instead of the built-in Flannel and kube-proxy, with Hubble (relay and UI) |
+| Application delivery | Argo CD v3.5.3 (GitOps, app of apps pattern), manifests in the `gitops/` directory |
+| Argo CD login | Through GitHub (OAuth, built-in Dex); the local `admin` account is disabled |
+| Load balancing (`LoadBalancer` services) | MetalLB v0.16.1, L2 mode, address pool 192.168.91.220–192.168.91.230 |
+| Inbound traffic (ingress) | Gateway API v1.6.1 implemented by Cilium: one shared gateway `lab` on 192.168.91.220, HTTPS (HTTP redirects to HTTPS), names `*.lab.home.arpa` |
+| TLS and certificates | cert-manager v1.21.2 with the lab's own certificate authority (`ClusterIssuer` `lab-ca`); TLS terminates at the gateway, the certificate is `*.lab.home.arpa` |
+| Secrets in Git | SOPS with an age key: encrypted `SopsSecret` objects in `gitops/secrets`, decrypted in the cluster by sops-secrets-operator 0.21.2 |
+| Observability (metrics and alerts) | Chart `victoria-metrics-k8s-stack` 0.95.2: VictoriaMetrics v1.153.0 instead of Prometheus, Alertmanager (email notifications), Grafana 13.2.3 at https://grafana.lab.home.arpa |
+| etcd backup | `talos-backup` (a `CronJob` in the cluster): an etcd snapshot every 3 hours, zstd compression and age encryption, upload to the bucket `lab-etcd-backup-2a7416` in cloud.ru Object Storage; restore follows the runbook `docs/runbooks/etcd-restore.md` |
 
-## Сеть узлов
+## Node network
 
-IP-адреса хостов Talos статически прописаны на роутере:
+The IP addresses of the Talos hosts are statically assigned on the router:
 
-| Узел | Роль | IP-адрес | Имя узла в кластере | Ключ в Terraform | VMID |
+| Node | Role | IP address | Node name in the cluster | Terraform key | VMID |
 | --- | --- | --- | --- | --- | --- |
 | master | control plane | 192.168.91.201 | `talos-cp1` | `cp1` | 201 |
 | worker 1 | worker | 192.168.91.211 | `talos-w1` | `w1` | 211 |
 | worker 2 | worker | 192.168.91.212 | `talos-w2` | `w2` | 212 |
 
-MAC-адреса ВМ заданы в Terraform явно, чтобы совпадать с арендами на роутере.
+The VM MAC addresses are set explicitly in Terraform so that they match the leases on the router.
 
-Диапазон 192.168.91.220–192.168.91.230 в той же подсети отдан MetalLB под адреса сервисов типа `LoadBalancer` (см. «Балансировка (MetalLB)»). Первый адрес диапазона, 192.168.91.220, закреплён за шлюзом `lab` (см. «Входящий трафик (Gateway API)»).
+The range 192.168.91.220–192.168.91.230 in the same subnet is given to MetalLB for `LoadBalancer` service addresses (see "Load balancing (MetalLB)"). The first address of the range, 192.168.91.220, is reserved for the gateway `lab` (see "Inbound traffic (Gateway API)").
 
-## Кластер
+## Cluster
 
-Кластер Talos `lab` развёрнут скриптом `bootstrap.sh` (см. «Развёртывание с нуля»), ВМ и конфигурация Talos описаны в Terraform (см. «Провижининг»). Все три узла в состоянии `Ready`.
+The Talos cluster `lab` is deployed by the `bootstrap.sh` script (see "Deployment from scratch"); the VMs and the Talos configuration are described in Terraform (see "Provisioning"). All three nodes are `Ready`.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | Talos API (endpoint) | 192.168.91.201 |
 | Kubernetes API | https://192.168.91.201:6443 |
-| Контекст `talosctl` | `lab` |
-| Контекст `kubectl` | `admin@lab` |
+| `talosctl` context | `lab` |
+| `kubectl` context | `admin@lab` |
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig get nodes -o wide
 talosctl --talosconfig ./talosconfig -n 192.168.91.201 version
 ```
 
-## Провижининг
+## Provisioning
 
-ВМ в Proxmox и кластер Talos описаны в Terraform-конфигурации в корне репозитория. Один `terraform apply` создаёт ВМ, применяет machine config, выполняет bootstrap и получает kubeconfig. Узлы после этого остаются `NotReady`, пока не установлен CNI, поэтому с нуля кластер поднимается скриптом `bootstrap.sh` (см. «Развёртывание с нуля»).
+The Proxmox VMs and the Talos cluster are described in the Terraform configuration in the repository root. A single `terraform apply` creates the VMs, applies the machine config, runs the bootstrap and fetches the kubeconfig. After that the nodes stay `NotReady` until a CNI is installed, so the cluster is brought up from scratch by the `bootstrap.sh` script (see "Deployment from scratch").
 
-| Компонент | Версия |
+| Component | Version |
 | --- | --- |
-| Terraform | v1.16.5 (требуется >= 1.6) |
-| Провайдер `bpg/proxmox` | 0.115.0 |
-| Провайдер `siderolabs/talos` | 0.12.0 |
+| Terraform | v1.16.5 (>= 1.6 required) |
+| Provider `bpg/proxmox` | 0.115.0 |
+| Provider `siderolabs/talos` | 0.12.0 |
 
-Файлы:
+Files:
 
-| Файл | Назначение | В VCS |
+| File | Purpose | In VCS |
 | --- | --- | --- |
-| `main.tf` | провайдеры, ВМ, секреты и конфигурация Talos, bootstrap | да |
-| `variables.tf` | переменные (адрес Proxmox, хранилище, ISO, версия Talos, описание нод) | да |
-| `outputs.tf` | выходы `kubeconfig` и `talosconfig` (sensitive) | да |
-| `backend.tf` | хранение state в S3 cloud.ru: бакет `lab-tfstate-2a7416`, ключ `talos/terraform.tfstate` | да |
-| `.terraform.lock.hcl` | зафиксированные версии провайдеров | да |
-| `terraform.tfvars` | installer image и параметры нод (VMID, IP, MAC, CPU, RAM) | нет |
-| `terraform.tfstate`, `terraform.tfstate.backup` | остатки локального state после переноса в S3: первый файл пуст, во втором — последняя локальная копия state с секретами кластера | нет |
-| `kubeconfig`, `talosconfig` | клиентские конфиги, выгруженные из выходов Terraform | нет |
-| `bootstrap.sh` | развёртывание кластера с нуля (см. «Развёртывание с нуля») | да |
-| `.sops.yaml` | правила шифрования `sops` для файлов `*.enc.yaml` (см. «Секреты (SOPS)») | да |
-| `.envrc` | окружение для direnv: пути к конфигам и профиль AWS, без секретов (см. «Локальное окружение (direnv)») | да |
-| `.envrc.local` | личные и секретные настройки direnv: токен Proxmox из keyring | нет |
-| `cloud/` | отдельная Terraform-конфигурация бакетов cloud.ru (см. «Облачное хранилище (cloud.ru)») | да |
-| `docs/runbooks/etcd-restore.md` | runbook восстановления etcd из снимка (см. «Резервное копирование etcd») | да |
-| `.restore/` | рабочий каталог для восстановления etcd: скачанные и расшифрованные снимки | нет |
+| `main.tf` | providers, VMs, Talos secrets and configuration, bootstrap | yes |
+| `variables.tf` | variables (Proxmox address, datastore, ISO, Talos version, node definitions) | yes |
+| `outputs.tf` | outputs `kubeconfig` and `talosconfig` (sensitive) | yes |
+| `backend.tf` | state storage in cloud.ru S3: bucket `lab-tfstate-2a7416`, key `talos/terraform.tfstate` | yes |
+| `.terraform.lock.hcl` | pinned provider versions | yes |
+| `terraform.tfvars` | installer image and node parameters (VMID, IP, MAC, CPU, RAM) | no |
+| `terraform.tfstate`, `terraform.tfstate.backup` | leftovers of the local state after the move to S3: the first file is empty, the second holds the last local copy of the state with the cluster secrets | no |
+| `kubeconfig`, `talosconfig` | client configs exported from the Terraform outputs | no |
+| `bootstrap.sh` | cluster deployment from scratch (see "Deployment from scratch") | yes |
+| `.sops.yaml` | `sops` encryption rules for `*.enc.yaml` files (see "Secrets (SOPS)") | yes |
+| `.envrc` | direnv environment: config paths and the AWS profile, no secrets (see "Local environment (direnv)") | yes |
+| `.envrc.local` | personal and secret direnv settings: the Proxmox token from the keyring | no |
+| `cloud/` | a separate Terraform configuration for the cloud.ru buckets (see "Cloud storage (cloud.ru)") | yes |
+| `docs/runbooks/etcd-restore.md` | runbook for restoring etcd from a snapshot (see "etcd backup") | yes |
+| `.restore/` | working directory for etcd restores: downloaded and decrypted snapshots | no |
 
-Особенности конфигурации:
+Configuration notes:
 
-- ВМ загружаются по UEFI (OVMF), диск — `scsi0` на `local-lvm` (20 ГБ), ISO Talos (`local:iso/talos.iso`) подключён как `ide3`.
-- Установка на диск описана документом `UnattendedInstallConfig` (Talos 1.14), образ установщика берётся с `factory.talos.dev` и задаётся переменной `talos_installer_image`.
-- Имена узлов задаются документом `HostnameConfig`: `talos-<ключ ноды>`.
-- У ВМ включено устройство QEMU guest agent (таймаут ожидания — 2 минуты). В образе Talos есть расширение `qemu-guest-agent`: без устройства агента его служба не стартует, и узел навсегда остаётся в стадии `Booting`.
-- Встроенные Flannel и kube-proxy отключены под Cilium: в machine config control plane добавлены удаление документа `KubeFlannelCNIConfig` и `KubeProxyConfig` с `enabled: false`. Это настройки кластера, поэтому в конфигурацию worker-узлов они не попадают.
-- Там же, в machine config control plane, включён доступ к Talos API из кластера — документ `KubeTalosAPIAccessConfig`: только для подов из namespace `talos-backup` и только с ролью `os:etcd:backup`. Через него `talos-backup` снимает снимки etcd (см. «Резервное копирование etcd»).
-- Секреты кластера (`talos_machine_secrets`) и сгенерированные machine config хранятся только в state; отдельных файлов `controlplane.yaml` и `worker.yaml` больше нет.
-- State удалённый: лежит в бакете `lab-tfstate-2a7416` в Object Storage cloud.ru под ключом `talos/terraform.tfstate` (`backend.tf`). В бакете включено версионирование, так что испорченный state можно откатить. От одновременных запусков защищает блокировка `use_lockfile`: на время операции рядом со state создаётся файл `.tflock`.
-- Для доступа к state нужен профиль AWS CLI `cloudru` (см. «Облачное хранилище (cloud.ru)»): без него не работают `terraform init`, `plan` и `apply`.
+- The VMs boot with UEFI (OVMF); the disk is `scsi0` on `local-lvm` (20 GB), and the Talos ISO (`local:iso/talos.iso`) is attached as `ide3`.
+- Installation to disk is described by the `UnattendedInstallConfig` document (Talos 1.14); the installer image comes from `factory.talos.dev` and is set by the `talos_installer_image` variable.
+- Node names are set by the `HostnameConfig` document: `talos-<node key>`.
+- The VMs have the QEMU guest agent device enabled (wait timeout: 2 minutes). The Talos image includes the `qemu-guest-agent` extension: without the agent device its service does not start, and the node stays in the `Booting` stage forever.
+- The built-in Flannel and kube-proxy are disabled in favour of Cilium: the control plane machine config removes the `KubeFlannelCNIConfig` document and adds `KubeProxyConfig` with `enabled: false`. These are cluster-level settings, so they do not go into the worker configuration.
+- The same control plane machine config enables access to the Talos API from inside the cluster with the `KubeTalosAPIAccessConfig` document: only for pods in the `talos-backup` namespace and only with the `os:etcd:backup` role. `talos-backup` uses it to take etcd snapshots (see "etcd backup").
+- The cluster secrets (`talos_machine_secrets`) and the generated machine configs are stored only in the state; there are no separate `controlplane.yaml` and `worker.yaml` files any more.
+- The state is remote: it lives in the bucket `lab-tfstate-2a7416` in cloud.ru Object Storage under the key `talos/terraform.tfstate` (`backend.tf`). The bucket has versioning enabled, so a broken state can be rolled back. `use_lockfile` locking protects against concurrent runs: a `.tflock` file is created next to the state for the duration of an operation.
+- Access to the state requires the AWS CLI profile `cloudru` (see "Cloud storage (cloud.ru)"): without it `terraform init`, `plan` and `apply` do not work.
 
-Использование (переменные окружения выставляет direnv, см. «Локальное окружение (direnv)»):
+Usage (direnv sets the environment variables, see "Local environment (direnv)"):
 
 ```sh
 terraform init
@@ -116,68 +116,76 @@ terraform output -raw kubeconfig > kubeconfig
 terraform output -raw talosconfig > talosconfig
 ```
 
-Токен API Proxmox передаётся только через переменную окружения `TF_VAR_proxmox_api_token` и в файлы репозитория не записывается. Без direnv её нужно выставить вручную: `export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'`.
+The Proxmox API token is passed only through the `TF_VAR_proxmox_api_token` environment variable and is never written to files in the repository. Without direnv it has to be set by hand: `export TF_VAR_proxmox_api_token='terraform@pve!tf=<uuid>'`.
 
-## Локальное окружение (direnv)
+## Local environment (direnv)
 
-Переменные окружения для работы со стендом выставляет [direnv](https://direnv.net/) при входе в каталог репозитория. После клонирования и после каждого изменения `.envrc` его нужно разрешить командой `direnv allow`.
+[direnv](https://direnv.net/) sets the environment variables for working with the lab when you enter the repository directory. After cloning, and after every change to `.envrc`, it has to be allowed with `direnv allow`.
 
-Файл `.envrc` лежит в Git: в нём нет секретов, только пути к ним.
+The `.envrc` file is in Git: it contains no secrets, only paths to them.
 
-| Переменная | Значение | Зачем |
+| Variable | Value | Why |
 | --- | --- | --- |
-| `KUBECONFIG` | `./kubeconfig` | `kubectl` и `helm` работают с кластером `lab` без флага `--kubeconfig` |
-| `TALOSCONFIG` | `./talosconfig` | `talosctl` работает без флага `--talosconfig` |
-| `SOPS_AGE_KEY_FILE` | `~/.lab/age.key` | `sops` находит ключ age (см. «Секреты (SOPS)») |
-| `AWS_PROFILE` | `cloudru` | AWS CLI и Terraform ходят в S3 cloud.ru |
-| `TF_INPUT` | `0` | Terraform не задаёт вопросов интерактивно: без токена Proxmox сразу завершается с ошибкой |
+| `KUBECONFIG` | `~/.kube/home/lab` | `kubectl` and `helm` work with the `lab` cluster without the `--kubeconfig` flag |
+| `TALOSCONFIG` | `./talosconfig` | `talosctl` works without the `--talosconfig` flag |
+| `SOPS_AGE_KEY_FILE` | `~/.lab/age.key` | `sops` finds the age key (see "Secrets (SOPS)") |
+| `AWS_PROFILE` | `cloudru` | AWS CLI and Terraform talk to cloud.ru S3 |
+| `TF_INPUT` | `0` | Terraform does not ask questions interactively: without the Proxmox token it fails immediately |
 
-Личные и секретные настройки лежат в файле `.envrc.local`, который `.envrc` подключает, если он есть. В Git он не попадает (внесён в `.gitignore`).
+`KUBECONFIG` points outside the repository: `~/.kube/home/lab` is a copy of the `kubeconfig` file, readable only by the owner. `bootstrap.sh` and the commands in "Provisioning" still export the kubeconfig to `./kubeconfig` in the repository root, so after the cluster is re-created the file has to be copied again:
 
-Токен API Proxmox:
+```sh
+install -m 600 kubeconfig ~/.kube/home/lab
+```
 
-- Хранится в Bitwarden, запись `terraform@pve!tf`.
-- Скрипт `lab-secrets-sync` (`~/.local/bin`, вне репозитория) копирует его из Bitwarden в системный keyring. Нужны утилиты `bw` и `secret-tool`. Скрипт запускают на новой машине и после ротации токена.
-- `.envrc.local` читает токен из keyring (`secret-tool lookup service lab key proxmox-api-token`) и выставляет `TF_VAR_proxmox_api_token`. На диске в открытом виде токен не лежит.
-- Если токена в keyring нет, direnv выводит ошибку с подсказкой: `lab-secrets-sync && direnv reload`.
+The examples in this README pass `--kubeconfig ./kubeconfig` explicitly, so they work without direnv too.
 
-## Облачное хранилище (cloud.ru)
+Personal and secret settings live in `.envrc.local`, which `.envrc` loads if it exists. It never reaches Git (it is listed in `.gitignore`).
 
-Вне Proxmox у стенда есть два бакета в Object Storage cloud.ru (S3-совместимое хранилище). Они описаны отдельной Terraform-конфигурацией в каталоге `cloud/` со своим state.
+The Proxmox API token:
 
-| Параметр | Значение |
+- It is stored in Bitwarden, in the entry `terraform@pve!tf`.
+- The `lab-secrets-sync` script (`~/.local/bin`, outside the repository) copies it from Bitwarden into the system keyring. It needs the `bw` and `secret-tool` utilities. The script is run on a new machine and after a token rotation.
+- `.envrc.local` reads the token from the keyring (`secret-tool lookup service lab key proxmox-api-token`) and sets `TF_VAR_proxmox_api_token`. The token is never stored on disk in plain text.
+- If the token is missing from the keyring, direnv prints an error with a hint: `lab-secrets-sync && direnv reload`.
+
+## Cloud storage (cloud.ru)
+
+Outside Proxmox the lab has two buckets in cloud.ru Object Storage (S3-compatible storage). They are described by a separate Terraform configuration in the `cloud/` directory with its own state.
+
+| Parameter | Value |
 | --- | --- |
-| Сервис | Object Storage cloud.ru, endpoint `https://s3.cloud.ru`, регион `ru-central-1` |
-| Провайдер `hashicorp/aws` | 6.68.0 (направлен на S3 cloud.ru) |
-| Провайдер `hashicorp/random` | 3.9.1 (суффикс в именах бакетов) |
-| Доступ | профиль AWS CLI `cloudru`: настройки — в `~/.aws/config`, ключи доступа — в `~/.aws/credentials` |
-| State | тот же бакет `lab-tfstate-2a7416`, ключ `cloud/terraform.tfstate` (`cloud/backend.tf`) |
+| Service | cloud.ru Object Storage, endpoint `https://s3.cloud.ru`, region `ru-central-1` |
+| Provider `hashicorp/aws` | 6.68.0 (pointed at cloud.ru S3) |
+| Provider `hashicorp/random` | 3.9.1 (the suffix in the bucket names) |
+| Access | AWS CLI profile `cloudru`: settings in `~/.aws/config`, access keys in `~/.aws/credentials` |
+| State | the same bucket `lab-tfstate-2a7416`, key `cloud/terraform.tfstate` (`cloud/backend.tf`) |
 
-Бакеты:
+Buckets:
 
-| Бакет | Назначение | Настройки |
+| Bucket | Purpose | Settings |
 | --- | --- | --- |
-| `lab-tfstate-2a7416` | state Terraform: `talos/terraform.tfstate` (кластер) и `cloud/terraform.tfstate` (сами бакеты) | версионирование |
-| `lab-etcd-backup-2a7416` | снимки etcd (префикс `etcd/`, см. «Резервное копирование etcd») | версионирование; Object Lock: 14 дней в режиме `GOVERNANCE`; правило жизненного цикла `expire-old`: объекты удаляются через 30 дней, прежние версии — через 7 дней |
+| `lab-tfstate-2a7416` | Terraform state: `talos/terraform.tfstate` (the cluster) and `cloud/terraform.tfstate` (the buckets themselves) | versioning |
+| `lab-etcd-backup-2a7416` | etcd snapshots (prefix `etcd/`, see "etcd backup") | versioning; Object Lock: 14 days in `GOVERNANCE` mode; lifecycle rule `expire-old`: objects are deleted after 30 days, noncurrent versions after 7 days |
 
-Файлы:
+Files:
 
-| Файл | Назначение |
+| File | Purpose |
 | --- | --- |
-| `cloud/main.tf` | провайдеры, оба бакета и их настройки, выходы `tfstate_bucket` и `etcd_backup_bucket` |
-| `cloud/backend.tf` | хранение state этой конфигурации в S3 |
-| `cloud/.terraform.lock.hcl` | зафиксированные версии провайдеров |
+| `cloud/main.tf` | providers, both buckets and their settings, outputs `tfstate_bucket` and `etcd_backup_bucket` |
+| `cloud/backend.tf` | storage of this configuration's state in S3 |
+| `cloud/.terraform.lock.hcl` | pinned provider versions |
 
-Особенности:
+Notes:
 
-- У cloud.ru нет сервисов AWS STS, IAM и метаданных EC2, поэтому в провайдере и в обоих `backend.tf` отключены обращения к ним (`skip_credentials_validation`, `skip_region_validation`, `skip_requesting_account_id`, `skip_metadata_api_check`), а в backend ещё и `skip_s3_checksum`. Адресация — в стиле пути (`use_path_style`).
-- Object Lock включается только при создании бакета. 14 дней каждый снимок etcd нельзя ни удалить, ни перезаписать. Режим `GOVERNANCE` в крайнем случае позволяет администратору (`s3e.admin`) снять блокировку; в режиме `COMPLIANCE` этого не мог бы никто.
-- Правило жизненного цикла записывается не ресурсом `aws_s3_bucket_lifecycle_configuration`, а командой AWS CLI из `terraform_data` `etcd_lifecycle`: ресурс провайдера ждёт в ответе поля, которых S3 cloud.ru не возвращает. При изменении JSON правила команда выполняется заново. Поэтому для `terraform apply` в `cloud/` нужна утилита `aws`.
-- Бакет для state создаёт эта же конфигурация, поэтому `cloud/backend.tf` добавлен уже после создания бакетов: сначала state был локальным, затем перенесён в бакет.
-- Имена бакетов записаны в `backend.tf` и `cloud/backend.tf` строкой: backend не умеет читать выходы Terraform. Если бакет пересоздать, суффикс изменится, и имя нужно поправить в обоих файлах.
-- В бакет для снимков etcd пишет `talos-backup` из кластера (см. «Резервное копирование etcd»). У него отдельные ключи доступа — сервисного аккаунта cloud.ru `sa-etcd-backup`. Профиль `cloudru` работает с ключами сервисного аккаунта `sa-lab-admin`. Оба сервисных аккаунта и их ключи заведены в консоли cloud.ru: в Terraform их нет.
+- cloud.ru has no AWS STS, IAM or EC2 metadata services, so calls to them are disabled in the provider and in both `backend.tf` files (`skip_credentials_validation`, `skip_region_validation`, `skip_requesting_account_id`, `skip_metadata_api_check`), plus `skip_s3_checksum` in the backend. Addressing is path-style (`use_path_style`).
+- Object Lock can only be enabled when a bucket is created. For 14 days each etcd snapshot can be neither deleted nor overwritten. `GOVERNANCE` mode lets an administrator (`s3e.admin`) lift the lock as a last resort; in `COMPLIANCE` mode nobody could.
+- The lifecycle rule is written not by the `aws_s3_bucket_lifecycle_configuration` resource but by an AWS CLI command from the `terraform_data` `etcd_lifecycle`: the provider resource waits for response fields that cloud.ru S3 does not return. When the rule JSON changes, the command runs again. That is why `terraform apply` in `cloud/` needs the `aws` utility.
+- The state bucket is created by this same configuration, so `cloud/backend.tf` was added after the buckets existed: the state was local at first and was then moved into the bucket.
+- The bucket names are written in `backend.tf` and `cloud/backend.tf` as literal strings: a backend cannot read Terraform outputs. If a bucket is re-created, the suffix changes and the name has to be fixed in both files.
+- The etcd snapshot bucket is written to by `talos-backup` from the cluster (see "etcd backup"). It has its own access keys, those of the cloud.ru service account `sa-etcd-backup`. The `cloudru` profile uses the keys of the service account `sa-lab-admin`. Both service accounts and their keys were created in the cloud.ru console: they are not in Terraform.
 
-Использование:
+Usage:
 
 ```sh
 cd cloud
@@ -187,208 +195,211 @@ terraform apply
 terraform output
 ```
 
-## Развёртывание с нуля
+## Deployment from scratch
 
-Скрипт `bootstrap.sh` поднимает кластер целиком одной командой. Всё, что не входит в его шаги, Argo CD ставит сам из Git.
+The `bootstrap.sh` script brings up the whole cluster with one command. Everything outside its steps is installed by Argo CD from Git.
 
-Шаги скрипта:
+Script steps:
 
-1. Проверка окружения до любых изменений: есть ли файл ключа age, утилиты `terraform`, `kubectl`, `helm`, `jq` и файл deploy-ключа. Если чего-то нет, скрипт сразу завершается с ошибкой.
-2. `terraform apply -parallelism=1` — ВМ и кластер Talos. Terraform запрашивает подтверждение как обычно.
-3. Выгрузка `kubeconfig` и `talosconfig` из выходов Terraform в корень репозитория.
-4. Ожидание готовности API-сервера.
-5. Установка типов ресурсов (CRD) Gateway API v1.6.1: `kubectl apply --server-side` файла `standard-install.yaml` из релиза `kubernetes-sigs/gateway-api`. Они нужны до Cilium: оператор создаёт `GatewayClass` `cilium`, только если CRD уже есть на момент его запуска. Шаг пропускается, если CRD `gateways.gateway.networking.k8s.io` уже есть в кластере.
-6. Установка Cilium через Helm в `kube-system` со значениями из `gitops/cilium/values.yaml`. Без CNI узлы остаются `NotReady`, поэтому Cilium ставится раньше остальных компонентов. Шаг пропускается, если в кластере уже есть приложение Argo CD `cilium`.
-7. Ожидание регистрации трёх узлов и их состояния `Ready`.
-8. Установка Argo CD через Helm в `argocd` со значениями из `gitops/argocd/values.yaml`. Шаг пропускается, если в кластере уже есть приложение Argo CD `argocd`.
-9. Создание секрета `repo-local-infra` с SSH-ключом доступа к репозиторию.
-10. Создание namespace `cert-manager` и восстановление секрета `lab-root-ca` (корневой сертификат стенда с приватным ключом) из локальной копии — до того, как cert-manager появится в кластере, иначе он выпустит новый корневой сертификат. Если копии нет, шаг пропускается; если секрет уже есть в кластере, он не перезаписывается.
-11. Создание namespace `sops-secrets-operator` и секрета `sops-age-key-file` с приватным ключом age — им оператор расшифровывает секреты из Git (см. «Секреты (SOPS)»).
-12. Применение корневого приложения `gitops/root.yaml`.
-13. Только если локальной копии не было: ожидание, пока cert-manager создаст секрет `lab-root-ca` (до 15 минут), и сохранение его в локальную копию для следующих пересозданий. Если секрет за это время не появился, скрипт завершается с ошибкой: кластер при этом поднят, копию нужно сохранить вручную.
+1. Environment check before any changes: the age key file, the `terraform`, `kubectl`, `helm` and `jq` utilities, and the deploy key file. If anything is missing, the script exits with an error right away.
+2. `terraform apply -parallelism=1`: the VMs and the Talos cluster. Terraform asks for confirmation as usual.
+3. Export of `kubeconfig` and `talosconfig` from the Terraform outputs into the repository root.
+4. Wait for the API server to become ready.
+5. Installation of the Gateway API v1.6.1 resource types (CRDs): `kubectl apply --server-side` of `standard-install.yaml` from the `kubernetes-sigs/gateway-api` release. They are needed before Cilium: the operator creates the `GatewayClass` `cilium` only if the CRDs already exist when it starts. The step is skipped if the CRD `gateways.gateway.networking.k8s.io` is already in the cluster.
+6. Installation of Cilium with Helm into `kube-system`, with values from `gitops/cilium/values.yaml`. Without a CNI the nodes stay `NotReady`, so Cilium is installed before the other components. The step is skipped if the cluster already has the Argo CD application `cilium`.
+7. Wait for the three nodes to register and become `Ready`.
+8. Installation of Argo CD with Helm into `argocd`, with values from `gitops/argocd/values.yaml`. The step is skipped if the cluster already has the Argo CD application `argocd`.
+9. Creation of the secret `repo-local-infra` with the SSH key for repository access.
+10. Creation of the `cert-manager` namespace and restore of the secret `lab-root-ca` (the lab root certificate with its private key) from the local copy, before cert-manager appears in the cluster; otherwise it would issue a new root certificate. If there is no copy, the step is skipped; if the secret is already in the cluster, it is not overwritten.
+11. Creation of the `sops-secrets-operator` namespace and the secret `sops-age-key-file` with the age private key, which the operator uses to decrypt secrets from Git (see "Secrets (SOPS)").
+12. Application of the root application `gitops/root.yaml`.
+13. Only if there was no local copy: wait until cert-manager creates the secret `lab-root-ca` (up to 15 minutes) and save it to the local copy for future re-creations. If the secret does not appear in that time, the script exits with an error: the cluster is up, and the copy has to be saved by hand.
 
-Что нужно до запуска:
+What is needed before the run:
 
-- установленные `terraform`, `kubectl`, `helm` и `jq`, выполненный `terraform init`;
-- заполненный `terraform.tfvars` и переменная окружения `TF_VAR_proxmox_api_token` (её выставляет direnv, см. «Локальное окружение (direnv)»);
-- профиль AWS CLI `cloudru` с доступом к бакету `lab-tfstate-2a7416`: в нём лежит state Terraform (см. «Облачное хранилище (cloud.ru)»);
-- ISO Talos в хранилище Proxmox (`local:iso/talos.iso`);
-- доступ к `github.com` с машины, где запускается скрипт (оттуда скачивается манифест CRD Gateway API);
-- приватный SSH-ключ доступа Argo CD к репозиторию. Путь задаётся переменной окружения `DEPLOY_KEY`, по умолчанию — `~/argocd-deploy-key`;
-- по желанию — локальная копия секрета `lab-root-ca`, чтобы сохранить прежний корневой сертификат. Путь задаётся переменной окружения `CA_SECRET`, по умолчанию — `~/.lab/lab-root-ca-secret.json`. При первом запуске без копии скрипт создаёт её сам;
-- приватный ключ age, которым зашифрованы секреты в `gitops/secrets`. Путь задаётся переменной окружения `AGE_KEY`, по умолчанию — `~/.lab/age.key`. Без него скрипт не стартует: создать ключ заново нельзя, иначе секреты из Git не расшифруются.
+- `terraform`, `kubectl`, `helm` and `jq` installed, and `terraform init` done;
+- a filled-in `terraform.tfvars` and the `TF_VAR_proxmox_api_token` environment variable (direnv sets it, see "Local environment (direnv)");
+- the AWS CLI profile `cloudru` with access to the bucket `lab-tfstate-2a7416`, which holds the Terraform state (see "Cloud storage (cloud.ru)");
+- the Talos ISO in the Proxmox storage (`local:iso/talos.iso`);
+- access to `github.com` from the machine that runs the script (the Gateway API CRD manifest is downloaded from there);
+- the private SSH key that gives Argo CD access to the repository. The path is set by the `DEPLOY_KEY` environment variable, `~/argocd-deploy-key` by default;
+- optionally, a local copy of the secret `lab-root-ca`, to keep the previous root certificate. The path is set by the `CA_SECRET` environment variable, `~/.lab/lab-root-ca-secret.json` by default. On the first run without a copy the script creates it;
+- the age private key that the secrets in `gitops/secrets` are encrypted with. The path is set by the `AGE_KEY` environment variable, `~/.lab/age.key` by default. Without it the script does not start: the key cannot be generated again, or the secrets from Git would not decrypt.
 
-Запуск (в каталоге репозитория с разрешённым direnv; без него сначала выставь `TF_VAR_proxmox_api_token` вручную):
+Run (in the repository directory with direnv allowed; without it, set `TF_VAR_proxmox_api_token` by hand first):
 
 ```sh
 ./bootstrap.sh
 ```
 
-Особенности:
+Notes:
 
-- Скрипт можно запускать повторно, в том числе на работающем кластере. То, чем уже управляет Argo CD, он не трогает: CRD Gateway API ставятся, только если их ещё нет, Helm-релизы `cilium` и `argocd` — только если нет одноимённых приложений Argo CD. Секрет `repo-local-infra`, namespace `cert-manager` и `sops-secrets-operator`, секрет `sops-age-key-file` и корневое приложение применяются через `kubectl apply`.
-- Версии чартов заданы в двух местах и должны совпадать: `CILIUM_VERSION` — с `targetRevision` в `gitops/apps/cilium.yaml`, `ARGOCD_VERSION` — с `targetRevision` в `gitops/apps/argocd.yaml`. Иначе Argo CD после установки сразу приведёт релиз к версии из Git.
-- Версия Gateway API тоже задана дважды: в переменной `GATEWAY_API_VERSION` в `bootstrap.sh` и в `targetRevision` приложения `gitops/apps/gateway-api-crds.yaml`. Обе должны совпадать и соответствовать версии, под которую собран Cilium.
-- После шага 12 Argo CD берёт под своё управление установленные скриптом релизы `cilium` и `argocd` и типы ресурсов Gateway API (приложение `gateway-api-crds`).
-- cert-manager и центр сертификации стенда скрипт не ставит: их разворачивает Argo CD. Скрипт только переносит между пересозданиями кластера секрет `lab-root-ca`: с восстановленным секретом корневой сертификат остаётся прежним, и доверие на клиентских машинах настраивать заново не нужно (см. «Сертификаты (cert-manager)»).
-- Локальная копия секрета сохраняется в формате JSON без служебных полей (`uid`, `resourceVersion`, `creationTimestamp`, `managedFields`, `ownerReferences`), с правами только для владельца. В ней лежит приватный ключ центра сертификации: скрипт советует скопировать файл в менеджер паролей.
-- sops-secrets-operator скрипт не ставит: его разворачивает Argo CD. Скрипт только кладёт в кластер ключ age до применения корневого приложения, чтобы оператор сразу смог расшифровать секреты.
-- Argo CD ставится сразу с отключённой учётной записью `admin` и входом через GitHub. Войти в интерфейс получится, только когда Argo CD развернёт sops-secrets-operator и приложение `platform-secrets`, а оператор создаст секрет `argocd-github-oauth` (см. «Вход в Argo CD»).
+- The script can be run again, including on a running cluster. It does not touch what Argo CD already manages: the Gateway API CRDs are installed only if they are missing, and the Helm releases `cilium` and `argocd` only if there are no Argo CD applications with the same names. The secret `repo-local-infra`, the namespaces `cert-manager` and `sops-secrets-operator`, the secret `sops-age-key-file` and the root application are applied with `kubectl apply`.
+- The chart versions are set in two places and must match: `CILIUM_VERSION` with `targetRevision` in `gitops/apps/cilium.yaml`, and `ARGOCD_VERSION` with `targetRevision` in `gitops/apps/argocd.yaml`. Otherwise Argo CD brings the release to the version from Git right after the installation.
+- The Gateway API version is also set twice: in the `GATEWAY_API_VERSION` variable in `bootstrap.sh` and in `targetRevision` of the application `gitops/apps/gateway-api-crds.yaml`. Both must match each other and the version Cilium is built against.
+- After step 12 Argo CD takes over the releases `cilium` and `argocd` installed by the script, and the Gateway API resource types (application `gateway-api-crds`).
+- The script does not install cert-manager or the lab certificate authority: Argo CD deploys them. The script only carries the secret `lab-root-ca` across cluster re-creations: with the restored secret the root certificate stays the same, and trust on client machines does not have to be set up again (see "Certificates (cert-manager)").
+- The local copy of the secret is saved as JSON without the service fields (`uid`, `resourceVersion`, `creationTimestamp`, `managedFields`, `ownerReferences`), readable only by the owner. It holds the private key of the certificate authority: the script advises copying the file into a password manager.
+- The script does not install sops-secrets-operator: Argo CD deploys it. The script only puts the age key into the cluster before the root application is applied, so that the operator can decrypt secrets right away.
+- Argo CD is installed with the `admin` account already disabled and with GitHub login. Logging in to the UI works only after Argo CD has deployed sops-secrets-operator and the application `platform-secrets`, and the operator has created the secret `argocd-github-oauth` (see "Argo CD login").
 
-## Сеть кластера (Cilium)
+## Cluster network (Cilium)
 
-CNI кластера — Cilium. Он заменяет встроенные в Talos Flannel и kube-proxy (оба отключены в machine config, см. «Провижининг»). Первую установку выполняет `bootstrap.sh`, дальше релизом управляет приложение Argo CD `cilium`.
+The cluster CNI is Cilium. It replaces Flannel and kube-proxy built into Talos (both are disabled in the machine config, see "Provisioning"). `bootstrap.sh` does the first installation; after that the release is managed by the Argo CD application `cilium`.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | Cilium | v1.20.2 |
-| Helm-чарт | `cilium` 1.20.2 из `https://helm.cilium.io` |
+| Helm chart | `cilium` 1.20.2 from `https://helm.cilium.io` |
 | Namespace | `kube-system` |
-| Имя релиза | `cilium` |
-| IPAM | `kubernetes` (подсеть подов — 10.244.0.0/16, по умолчанию в Talos) |
-| Замена kube-proxy | включена (`kubeProxyReplacement: true`) |
-| Hubble | включены relay и UI |
-| Gateway API | включён (`gatewayAPI.enabled: true`), `GatewayClass` `cilium` |
+| Release name | `cilium` |
+| IPAM | `kubernetes` (pod subnet 10.244.0.0/16, the Talos default) |
+| kube-proxy replacement | enabled (`kubeProxyReplacement: true`) |
+| Hubble | relay and UI enabled |
+| Gateway API | enabled (`gatewayAPI.enabled: true`), `GatewayClass` `cilium` |
 
-Особенности (значения — в `gitops/cilium/values.yaml`, по документации Talos 1.14):
+Notes (values in `gitops/cilium/values.yaml`, following the Talos 1.14 documentation):
 
-- К API-серверу Cilium обращается через KubePrism — локальный балансировщик Talos на `localhost:7445`.
-- Набор capabilities агента задан явно, автомонтирование cgroup отключено, используется `/sys/fs/cgroup` хоста.
-- Для экономии памяти оператор Cilium работает в одной реплике.
-- Адреса сервисам типа `LoadBalancer` по-прежнему выдаёт MetalLB.
-- Cilium реализует Gateway API: принимает входящий HTTP- и HTTPS-трафик через шлюз `lab` (см. «Входящий трафик (Gateway API)»). Для этого CRD Gateway API должны быть установлены до запуска оператора Cilium.
+- Cilium reaches the API server through KubePrism, the local Talos load balancer on `localhost:7445`.
+- The agent's set of capabilities is listed explicitly, cgroup automount is disabled, and the host's `/sys/fs/cgroup` is used.
+- To save memory, the Cilium operator runs as a single replica.
+- Addresses for `LoadBalancer` services are still handed out by MetalLB.
+- Cilium implements Gateway API: it accepts inbound HTTP and HTTPS traffic through the gateway `lab` (see "Inbound traffic (Gateway API)"). For that, the Gateway API CRDs must be installed before the Cilium operator starts.
 
-Hubble UI доступен из локальной сети по адресу https://hubble.lab.home.arpa (сервис `hubble-ui` остаётся `ClusterIP`, наружу его публикует шлюз).
+Hubble UI is available from the local network at https://hubble.lab.home.arpa (the service `hubble-ui` stays `ClusterIP`; the gateway publishes it).
 
-Проверка состояния и запасной доступ к Hubble UI в обход шлюза:
+Status check and fallback access to Hubble UI bypassing the gateway:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n kube-system get pods -l app.kubernetes.io/part-of=cilium
 kubectl --kubeconfig ./kubeconfig -n kube-system port-forward svc/hubble-ui 12000:80
 ```
 
-## Доставка приложений (GitOps)
+## Application delivery (GitOps)
 
-В кластере установлен Argo CD, который синхронизирует состояние кластера с каталогом `gitops/` этого репозитория (ветка `main`).
+Argo CD is installed in the cluster and keeps the cluster state in sync with the `gitops/` directory of this repository (branch `main`).
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | Argo CD | v3.5.3 |
-| Helm-чарт | `argo-cd` 10.9.6 из `https://argoproj.github.io/argo-helm` |
+| Helm chart | `argo-cd` 10.9.6 from `https://argoproj.github.io/argo-helm` |
 | Namespace | `argocd` |
-| Имя релиза | `argocd` |
-| Репозиторий | `git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git` (SSH) |
-| Проект Argo CD | `default` |
+| Release name | `argocd` |
+| Repository | `git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git` (SSH) |
+| Argo CD project | `default` |
 
-Структура:
+Layout:
 
-| Путь | Назначение |
+| Path | Purpose |
 | --- | --- |
-| `gitops/root.yaml` | корневое приложение `root`: следит за каталогом `gitops/apps` |
-| `gitops/apps/` | манифесты `Application`, по одному на компонент |
-| `gitops/apps/argocd.yaml` | приложение `argocd`: Argo CD управляет собственным Helm-релизом |
-| `gitops/argocd/values.yaml` | значения чарта Argo CD |
-| `gitops/apps/cilium.yaml` | приложение `cilium`: Helm-чарт Cilium |
-| `gitops/cilium/values.yaml` | значения чарта Cilium (их же использует `bootstrap.sh`) |
-| `gitops/apps/metallb.yaml` | приложение `metallb`: Helm-чарт MetalLB |
-| `gitops/apps/metallb-config.yaml` | приложение `metallb-config`: следит за каталогом `gitops/metallb-config` |
-| `gitops/metallb-config/pool.yaml` | пул адресов и L2-анонс MetalLB |
-| `gitops/apps/gateway-api-crds.yaml` | приложение `gateway-api-crds`: типы ресурсов (CRD) Gateway API из `kubernetes-sigs/gateway-api` |
-| `gitops/apps/gateway.yaml` | приложение `gateway`: следит за каталогом `gitops/gateway` |
-| `gitops/gateway/gateway.yaml` | шлюз `lab` |
-| `gitops/gateway/routes.yaml` | маршруты `HTTPRoute` к Argo CD и Hubble UI и перенаправление с HTTP на HTTPS |
-| `gitops/gateway/grafana-route.yaml` | маршрут `HTTPRoute` к Grafana |
-| `gitops/apps/cert-manager.yaml` | приложение `cert-manager`: Helm-чарт cert-manager (значения — в самом манифесте) |
-| `gitops/apps/cert-manager-config.yaml` | приложение `cert-manager-config`: следит за каталогом `gitops/cert-manager` |
-| `gitops/cert-manager/issuers.yaml` | центр сертификации стенда: издатели `ClusterIssuer` и корневой сертификат |
-| `gitops/apps/sops-secrets-operator.yaml` | приложение `sops-secrets-operator`: Helm-чарт оператора (значения — в самом манифесте) |
-| `gitops/apps/platform-secrets.yaml` | приложение `platform-secrets`: следит за каталогом `gitops/secrets` |
-| `gitops/secrets/argocd-github-oauth.enc.yaml` | зашифрованный `SopsSecret`: данные приложения GitHub OAuth для входа в Argo CD |
-| `gitops/secrets/alertmanager-config.enc.yaml` | зашифрованный `SopsSecret`: конфигурация Alertmanager |
-| `gitops/secrets/talos-backup-s3.enc.yaml` | зашифрованный `SopsSecret`: ключи доступа к бакету со снимками etcd |
-| `gitops/apps/monitoring.yaml` | приложение `monitoring`: Helm-чарт `victoria-metrics-k8s-stack` (значения — в самом манифесте) |
-| `gitops/apps/talos-backup.yaml` | приложение `talos-backup`: следит за каталогом `gitops/talos-backup` |
-| `gitops/talos-backup/cronjob.yaml` | `CronJob` `talos-backup`: снимки etcd по расписанию |
-| `gitops/talos-backup/talos-serviceaccount.yaml` | `ServiceAccount` Talos (`talos.dev/v1alpha1`): доступ к Talos API с ролью `os:etcd:backup` |
-| `gitops/talos-backup/alerts.yaml` | `VMRule` `talos-backup`: алерты на устаревший или отсутствующий снимок |
+| `gitops/root.yaml` | root application `root`: watches the `gitops/apps` directory |
+| `gitops/apps/` | `Application` manifests, one per component |
+| `gitops/apps/argocd.yaml` | application `argocd`: Argo CD manages its own Helm release |
+| `gitops/argocd/values.yaml` | Argo CD chart values |
+| `gitops/apps/cilium.yaml` | application `cilium`: the Cilium Helm chart |
+| `gitops/cilium/values.yaml` | Cilium chart values (also used by `bootstrap.sh`) |
+| `gitops/apps/metallb.yaml` | application `metallb`: the MetalLB Helm chart |
+| `gitops/apps/metallb-config.yaml` | application `metallb-config`: watches the `gitops/metallb-config` directory |
+| `gitops/metallb-config/pool.yaml` | MetalLB address pool and L2 advertisement |
+| `gitops/apps/gateway-api-crds.yaml` | application `gateway-api-crds`: the Gateway API resource types (CRDs) from `kubernetes-sigs/gateway-api` |
+| `gitops/apps/gateway.yaml` | application `gateway`: watches the `gitops/gateway` directory |
+| `gitops/gateway/gateway.yaml` | the gateway `lab` |
+| `gitops/gateway/routes.yaml` | `HTTPRoute` routes to Argo CD and Hubble UI, and the HTTP-to-HTTPS redirect |
+| `gitops/gateway/grafana-route.yaml` | `HTTPRoute` route to Grafana |
+| `gitops/apps/cert-manager.yaml` | application `cert-manager`: the cert-manager Helm chart (values in the manifest itself) |
+| `gitops/apps/cert-manager-config.yaml` | application `cert-manager-config`: watches the `gitops/cert-manager` directory |
+| `gitops/cert-manager/issuers.yaml` | the lab certificate authority: the `ClusterIssuer` issuers and the root certificate |
+| `gitops/apps/sops-secrets-operator.yaml` | application `sops-secrets-operator`: the operator's Helm chart (values in the manifest itself) |
+| `gitops/apps/platform-secrets.yaml` | application `platform-secrets`: watches the `gitops/secrets` directory |
+| `gitops/secrets/argocd-github-oauth.enc.yaml` | encrypted `SopsSecret`: the GitHub OAuth app credentials for Argo CD login |
+| `gitops/secrets/alertmanager-config.enc.yaml` | encrypted `SopsSecret`: the Alertmanager configuration |
+| `gitops/secrets/talos-backup-s3.enc.yaml` | encrypted `SopsSecret`: access keys for the etcd snapshot bucket |
+| `gitops/apps/monitoring.yaml` | application `monitoring`: the `victoria-metrics-k8s-stack` Helm chart (values in the manifest itself) |
+| `gitops/apps/talos-backup.yaml` | application `talos-backup`: watches the `gitops/talos-backup` directory |
+| `gitops/talos-backup/cronjob.yaml` | `CronJob` `talos-backup`: scheduled etcd snapshots |
+| `gitops/talos-backup/talos-serviceaccount.yaml` | Talos `ServiceAccount` (`talos.dev/v1alpha1`): access to the Talos API with the `os:etcd:backup` role |
+| `gitops/talos-backup/alerts.yaml` | `VMRule` `talos-backup`: alerts for a stale or missing snapshot |
 
-Как это работает:
+How it works:
 
-- Приложение `root` применяет всё, что лежит в `gitops/apps`. Чтобы добавить компонент в кластер, достаточно положить туда манифест `Application` и отправить коммит в `main`.
-- У всех приложений включена автоматическая синхронизация с `prune` и `selfHeal`: ручные правки в кластере откатываются, а удалённое из Git удаляется из кластера. Исключение — `gateway-api-crds`: у него `prune` отключён, чтобы типы ресурсов не удалялись автоматически.
-- Для экономии памяти в чарте отключён контроллер уведомлений. Dex включён: через него работает вход по GitHub (см. «Вход в Argo CD»).
-- `argocd-server` работает без TLS (`configs.params.server.insecure: true`): TLS завершается на шлюзе, а в сервис шлюз ходит по HTTP.
-- Доступ к репозиторию — по SSH-ключу из секрета `repo-local-infra` в namespace `argocd`. Секрет создаёт `bootstrap.sh`, в Git он не хранится.
+- The application `root` applies everything in `gitops/apps`. To add a component to the cluster, put an `Application` manifest there and push a commit to `main`.
+- All applications have automated sync with `prune` and `selfHeal`: manual changes in the cluster are reverted, and whatever is deleted from Git is deleted from the cluster. The exception is `gateway-api-crds`: its `prune` is disabled so that resource types are never deleted automatically.
+- To save memory, the notifications controller is disabled in the chart. Dex is enabled: GitHub login works through it (see "Argo CD login").
+- `argocd-server` runs without TLS (`configs.params.server.insecure: true`): TLS terminates at the gateway, and the gateway talks to the service over HTTP.
+- Repository access uses the SSH key from the secret `repo-local-infra` in the `argocd` namespace. `bootstrap.sh` creates the secret; it is not stored in Git.
 
-Первичную установку Argo CD, создание секрета `repo-local-infra` и применение `gitops/root.yaml` выполняет `bootstrap.sh` (см. «Развёртывание с нуля»). Дальше Argo CD обслуживает себя сам.
+The initial installation of Argo CD, the creation of the secret `repo-local-infra` and the application of `gitops/root.yaml` are done by `bootstrap.sh` (see "Deployment from scratch"). After that Argo CD maintains itself.
 
-Интерфейс Argo CD доступен из локальной сети по адресу https://argocd.lab.home.arpa (сервис `argocd-server` остаётся `ClusterIP`, наружу его публикует шлюз, см. «Входящий трафик (Gateway API)»).
+The Argo CD UI is available from the local network at https://argocd.lab.home.arpa (the service `argocd-server` stays `ClusterIP`; the gateway publishes it, see "Inbound traffic (Gateway API)").
 
-Проверка состояния и запасной доступ к интерфейсу в обход шлюза (по HTTP: `argocd-server` работает без TLS). Войти через GitHub при таком доступе не получится: после входа GitHub возвращает на основной адрес.
+Status check and fallback access to the UI bypassing the gateway (over HTTP: `argocd-server` runs without TLS). GitHub login does not work with this kind of access: after login GitHub redirects to the main address.
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n argocd get applications
 kubectl --kubeconfig ./kubeconfig -n argocd port-forward svc/argocd-server 8080:80
 ```
 
-### Вход в Argo CD
+### Argo CD login
 
-В интерфейс Argo CD входят через GitHub: встроенный Dex работает как клиент GitHub OAuth. Локальная учётная запись `admin` отключена. Настройки — в `gitops/argocd/values.yaml`.
+Users log in to the Argo CD UI through GitHub: the built-in Dex acts as a GitHub OAuth client. The local `admin` account is disabled. The settings are in `gitops/argocd/values.yaml`.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
-| Адрес Argo CD | `https://argocd.lab.home.arpa` (`global.domain` и `configs.cm.url`) |
-| Коннектор Dex | `github` (`configs.cm."dex.config"`) |
-| Данные приложения GitHub OAuth | секрет `argocd-github-oauth` в namespace `argocd`, ключи `clientID` и `clientSecret` |
-| Адрес возврата в приложении GitHub OAuth | `https://argocd.lab.home.arpa/api/dex/callback` |
-| Локальный `admin` | отключён (`configs.cm."admin.enabled": "false"`) |
-| Права | `configs.rbac`: роли по умолчанию нет (`policy.default: ""`), `role:admin` выдана по адресу почты в `policy.csv` |
+| Argo CD address | `https://argocd.lab.home.arpa` (`global.domain` and `configs.cm.url`) |
+| Dex connector | `github` (`configs.cm."dex.config"`) |
+| GitHub OAuth app credentials | secret `argocd-github-oauth` in the `argocd` namespace, keys `clientID` and `clientSecret` |
+| Callback URL in the GitHub OAuth app | `https://argocd.lab.home.arpa/api/dex/callback` |
+| Local `admin` | disabled (`configs.cm."admin.enabled": "false"`) |
+| Who can log in | only members of the GitHub organization `oncall-gym` (`orgs` in the connector config) |
+| Permissions | `configs.rbac`: no default role (`policy.default: ""`), `role:admin` is granted to the GitHub team `oncall-gym:admins` in `policy.csv` |
 
-Особенности:
+Notes:
 
-- Секрет `argocd-github-oauth` в Git лежит зашифрованным (`gitops/secrets/argocd-github-oauth.enc.yaml`), в кластере его создаёт sops-secrets-operator (см. «Секреты (SOPS)»). В `dex.config` значения подставляются ссылками вида `$argocd-github-oauth:clientID`; для этого на секрете стоит метка `app.kubernetes.io/part-of: argocd`.
-- Пользователь GitHub, которого нет в `policy.csv`, войти сможет, но ничего не увидит: роли по умолчанию нет. Чтобы дать доступ, добавь строку `g, <почта>, role:admin` в `configs.rbac."policy.csv"`. Почта берётся из учётной записи GitHub (`scopes: "[groups, email]"`).
-- Для входа с клиентской машины нужен доступ к `github.com`, а Dex в кластере должен доставать до API GitHub.
-- Запасного входа по паролю нет. Если вход через GitHub сломался, состояние приложений смотри через `kubectl`, а `admin` возвращай правкой `gitops/argocd/values.yaml`.
+- The secret `argocd-github-oauth` is stored in Git encrypted (`gitops/secrets/argocd-github-oauth.enc.yaml`); in the cluster it is created by sops-secrets-operator (see "Secrets (SOPS)"). In `dex.config` the values are substituted through references of the form `$argocd-github-oauth:clientID`; for that the secret carries the label `app.kubernetes.io/part-of: argocd`.
+- Permissions follow GitHub team membership, not personal accounts. Dex passes the user's teams in the `groups` claim as `<org>:<team>` (`scopes: "[groups, email]"`), and `policy.csv` maps the team `oncall-gym:admins` to `role:admin`. To grant or revoke admin access, add the user to that team or remove them from it in GitHub: nothing changes in Git.
+- A GitHub user outside the organization `oncall-gym` cannot log in at all. A member of the organization who is not in the `admins` team can log in but sees nothing: there is no default role. To give another team access, add a line `g, oncall-gym:<team>, <role>` to `configs.rbac."policy.csv"`.
+- If the organization restricts third-party OAuth apps, the Argo CD OAuth app has to be approved for it; otherwise Dex cannot read the team membership and the login fails.
+- Logging in from a client machine requires access to `github.com`, and Dex in the cluster must be able to reach the GitHub API.
+- There is no fallback password login. If GitHub login breaks, check the application state with `kubectl`, and bring `admin` back by editing `gitops/argocd/values.yaml`.
 
-## Входящий трафик (Gateway API)
+## Inbound traffic (Gateway API)
 
-Трафик снаружи принимает один общий шлюз `lab`, реализованный Cilium (Gateway API). Сервисы доступны по HTTPS, запросы по HTTP перенаправляются на HTTPS. Отдельного ingress-контроллера в кластере нет.
+Outside traffic is accepted by one shared gateway `lab`, implemented by Cilium (Gateway API). Services are available over HTTPS; HTTP requests are redirected to HTTPS. There is no separate ingress controller in the cluster.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
-| Gateway API (CRD) | v1.6.1, канал `standard` (под эту версию собран Cilium 1.20) |
-| Реализация | Cilium, `GatewayClass` `cilium` (контроллер `io.cilium/gateway-controller`) |
-| Шлюз | `Gateway` `lab` в namespace `gateway` |
-| Адрес | 192.168.91.220 — сервис `cilium-gateway-lab` типа `LoadBalancer` (порты 80 и 443), адрес выдаёт MetalLB |
-| Listener `http` | HTTP, порт 80, имена `*.lab.home.arpa`, маршруты только из namespace `gateway` — здесь живёт одно перенаправление на HTTPS |
-| Listener `https` | HTTPS, порт 443, имена `*.lab.home.arpa`, маршруты разрешены из любых namespace |
-| TLS | завершается на шлюзе (`mode: Terminate`), сертификат — секрет `lab-wildcard-tls` в namespace `gateway`, выпускает cert-manager (см. «Сертификаты (cert-manager)») |
+| Gateway API (CRDs) | v1.6.1, `standard` channel (the version Cilium 1.20 is built against) |
+| Implementation | Cilium, `GatewayClass` `cilium` (controller `io.cilium/gateway-controller`) |
+| Gateway | `Gateway` `lab` in the `gateway` namespace |
+| Address | 192.168.91.220: the `LoadBalancer` service `cilium-gateway-lab` (ports 80 and 443); the address is handed out by MetalLB |
+| Listener `http` | HTTP, port 80, names `*.lab.home.arpa`, routes only from the `gateway` namespace; the only thing here is the redirect to HTTPS |
+| Listener `https` | HTTPS, port 443, names `*.lab.home.arpa`, routes allowed from any namespace |
+| TLS | terminates at the gateway (`mode: Terminate`); the certificate is the secret `lab-wildcard-tls` in the `gateway` namespace, issued by cert-manager (see "Certificates (cert-manager)") |
 
-Опубликованные сервисы:
+Published services:
 
-| Адрес | `HTTPRoute` | Сервис |
+| Address | `HTTPRoute` | Service |
 | --- | --- | --- |
-| https://argocd.lab.home.arpa | `argocd` в namespace `argocd` | `argocd-server:80` |
-| https://hubble.lab.home.arpa | `hubble` в namespace `kube-system` | `hubble-ui:80` |
-| https://grafana.lab.home.arpa | `grafana` в namespace `monitoring` | `vmks-grafana:80` |
+| https://argocd.lab.home.arpa | `argocd` in the `argocd` namespace | `argocd-server:80` |
+| https://hubble.lab.home.arpa | `hubble` in the `kube-system` namespace | `hubble-ui:80` |
+| https://grafana.lab.home.arpa | `grafana` in the `monitoring` namespace | `vmks-grafana:80` |
 
-Как это устроено:
+How it is built:
 
-- Типы ресурсов Gateway API ставит приложение `gateway-api-crds` из репозитория `kubernetes-sigs/gateway-api` (тег `v1.6.1`, каталог `config/crd`). У него отключён `prune` и включён `ServerSideApply=true`: описания слишком большие для обычного `apply`.
-- При развёртывании с нуля те же типы ставит `bootstrap.sh` перед Cilium: оператор Cilium создаёт `GatewayClass` `cilium`, только если CRD уже есть на момент его запуска.
-- В значениях чарта Cilium включено `gatewayAPI.enabled` (а также `enableAlpn` и `enableAppProtocol`).
-- Приложение `gateway` применяет каталог `gitops/gateway`: `gateway.yaml` (шлюз), `routes.yaml` (перенаправление и маршруты к Argo CD и Hubble UI) и `grafana-route.yaml` (маршрут к Grafana). Namespace `gateway` создаёт Argo CD (`CreateNamespace=true`); включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации — на случай, когда CRD ещё не установлены.
-- Адрес шлюза закреплён аннотацией `metallb.io/loadBalancerIPs: 192.168.91.220` (`spec.infrastructure.annotations` в `Gateway`): Cilium переносит её на создаваемый сервис.
-- Сертификат шлюза заказывается аннотацией `cert-manager.io/cluster-issuer: lab-ca` на самом `Gateway`: cert-manager по listener `https` сам создаёт `Certificate` `lab-wildcard-tls` на имя `*.lab.home.arpa` и продлевает его. Отдельного манифеста `Certificate` в Git нет.
-- `HTTPRoute` `http-to-https` в namespace `gateway` привязан к listener `http` и отвечает на любой запрос перенаправлением 301 на HTTPS. Других маршрутов на порту 80 нет: listener принимает маршруты только из своего namespace.
-- Маршруты к сервисам привязаны к listener `https` (`sectionName: https` в `parentRefs`). Они лежат в каталоге `gitops/gateway` (`routes.yaml`, для Grafana — `grafana-route.yaml`), но создаются в namespace своих сервисов (`argocd`, `kube-system`, `monitoring`), поэтому `ReferenceGrant` не нужен.
-- TLS завершается на шлюзе, в сервисы он ходит по HTTP, поэтому `argocd-server` запущен с `server.insecure: true` (`gitops/argocd/values.yaml`).
-- Имена `*.lab.home.arpa` действуют только в локальной сети и должны разрешаться в 192.168.91.220. DNS-записи настраиваются вне репозитория.
+- The Gateway API resource types are installed by the application `gateway-api-crds` from the `kubernetes-sigs/gateway-api` repository (tag `v1.6.1`, directory `config/crd`). It has `prune` disabled and `ServerSideApply=true` enabled: the definitions are too large for a regular `apply`.
+- When deploying from scratch, `bootstrap.sh` installs the same types before Cilium: the Cilium operator creates the `GatewayClass` `cilium` only if the CRDs already exist when it starts.
+- The Cilium chart values enable `gatewayAPI.enabled` (and also `enableAlpn` and `enableAppProtocol`).
+- The application `gateway` applies the `gitops/gateway` directory: `gateway.yaml` (the gateway), `routes.yaml` (the redirect and the routes to Argo CD and Hubble UI) and `grafana-route.yaml` (the route to Grafana). Argo CD creates the `gateway` namespace (`CreateNamespace=true`); `SkipDryRunOnMissingResource=true` and sync retries are enabled for the case when the CRDs are not installed yet.
+- The gateway address is pinned by the annotation `metallb.io/loadBalancerIPs: 192.168.91.220` (`spec.infrastructure.annotations` in the `Gateway`): Cilium copies it to the service it creates.
+- The gateway certificate is requested by the annotation `cert-manager.io/cluster-issuer: lab-ca` on the `Gateway` itself: from the `https` listener cert-manager creates the `Certificate` `lab-wildcard-tls` for `*.lab.home.arpa` and renews it. There is no separate `Certificate` manifest in Git.
+- The `HTTPRoute` `http-to-https` in the `gateway` namespace is attached to the `http` listener and answers every request with a 301 redirect to HTTPS. There are no other routes on port 80: the listener accepts routes only from its own namespace.
+- The service routes are attached to the `https` listener (`sectionName: https` in `parentRefs`). They live in the `gitops/gateway` directory (`routes.yaml`, and `grafana-route.yaml` for Grafana) but are created in the namespaces of their services (`argocd`, `kube-system`, `monitoring`), so no `ReferenceGrant` is needed.
+- TLS terminates at the gateway, and the gateway talks to the services over HTTP, so `argocd-server` runs with `server.insecure: true` (`gitops/argocd/values.yaml`).
+- The names `*.lab.home.arpa` work only in the local network and must resolve to 192.168.91.220. The DNS records are configured outside the repository.
 
-Чтобы опубликовать ещё один сервис, добавь `HTTPRoute` в `gitops/gateway/routes.yaml` (в namespace сервиса, с `parentRefs` на шлюз `lab` в namespace `gateway` и `sectionName: https`) и DNS-запись для нового имени. Новый сертификат не нужен: имя вида `<сервис>.lab.home.arpa` покрывает общий сертификат шлюза.
+To publish one more service, add an `HTTPRoute` to `gitops/gateway/routes.yaml` (in the service's namespace, with `parentRefs` pointing at the gateway `lab` in the `gateway` namespace and `sectionName: https`) and a DNS record for the new name. A new certificate is not needed: a name of the form `<service>.lab.home.arpa` is covered by the shared gateway certificate.
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig get gatewayclass
@@ -397,58 +408,58 @@ curl -I --resolve argocd.lab.home.arpa:80:192.168.91.220 http://argocd.lab.home.
 curl -I --cacert ./lab-root-ca.crt --resolve argocd.lab.home.arpa:443:192.168.91.220 https://argocd.lab.home.arpa/
 ```
 
-Первый запрос должен вернуть 301 на `https://`, второй — 200.
+The first request must return a 301 to `https://`, the second a 200.
 
-## Сертификаты (cert-manager)
+## Certificates (cert-manager)
 
-TLS-сертификаты выпускает cert-manager от имени собственного центра сертификации стенда. Он установлен через Argo CD двумя приложениями: `cert-manager` ставит сам cert-manager, `cert-manager-config` — издателей и корневой сертификат.
+TLS certificates are issued by cert-manager on behalf of the lab's own certificate authority. It is installed through Argo CD as two applications: `cert-manager` installs cert-manager itself, and `cert-manager-config` installs the issuers and the root certificate.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | cert-manager | v1.21.2 |
-| Helm-чарт | `cert-manager` v1.21.2 из `https://charts.jetstack.io` |
+| Helm chart | `cert-manager` v1.21.2 from `https://charts.jetstack.io` |
 | Namespace | `cert-manager` |
-| Имя релиза | `cert-manager` |
-| Рабочий издатель | `ClusterIssuer` `lab-ca` — подписывает сертификаты корневым |
-| Корневой сертификат | `Certificate` `lab-root-ca` (`CN=Lab Root CA`, ECDSA P-256, 10 лет), секрет `lab-root-ca` в namespace `cert-manager` |
-| Сертификат шлюза | `Certificate` `lab-wildcard-tls` в namespace `gateway`: `*.lab.home.arpa`, 90 дней, продлевается автоматически |
+| Release name | `cert-manager` |
+| Working issuer | `ClusterIssuer` `lab-ca`: signs certificates with the root |
+| Root certificate | `Certificate` `lab-root-ca` (`CN=Lab Root CA`, ECDSA P-256, 10 years), secret `lab-root-ca` in the `cert-manager` namespace |
+| Gateway certificate | `Certificate` `lab-wildcard-tls` in the `gateway` namespace: `*.lab.home.arpa`, 90 days, renewed automatically |
 
-Центр сертификации собран в три шага (`gitops/cert-manager/issuers.yaml`):
+The certificate authority is built in three steps (`gitops/cert-manager/issuers.yaml`):
 
-1. `ClusterIssuer` `selfsigned-bootstrap` — издатель, который умеет только подписывать сам себя.
-2. `Certificate` `lab-root-ca` — корневой сертификат, выпущенный этим издателем.
-3. `ClusterIssuer` `lab-ca` — рабочий издатель, который подписывает всё остальное корневым сертификатом.
+1. `ClusterIssuer` `selfsigned-bootstrap`: an issuer that can only sign itself.
+2. `Certificate` `lab-root-ca`: the root certificate issued by that issuer.
+3. `ClusterIssuer` `lab-ca`: the working issuer that signs everything else with the root certificate.
 
-Особенности:
+Notes:
 
-- Значения чарта заданы прямо в `gitops/apps/cert-manager.yaml` (`valuesObject`): CRD ставит сам чарт (`crds.enabled: true`), в конфигурации контроллера включено `enableGatewayAPI: true` — без этого cert-manager не смотрит на объекты `Gateway`.
-- Namespace `cert-manager` при развёртывании с нуля создаёт `bootstrap.sh` — он нужен для секрета `lab-root-ca` ещё до установки чарта. У приложения `cert-manager` при этом остаётся `CreateNamespace=true`.
-- Издатели и корневой сертификат вынесены в отдельное приложение, потому что их CRD появляются только после установки чарта. Поэтому у `cert-manager-config` включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации.
-- Центр сертификации внутренний: публичного доверия к нему нет, а ACME (Let's Encrypt) не используется — имена `*.lab.home.arpa` существуют только в локальной сети.
-- Приватный ключ корневого сертификата лежит в секрете `lab-root-ca` в кластере и в его локальных копиях (см. таблицу ниже); в Git его нет.
+- The chart values are set right in `gitops/apps/cert-manager.yaml` (`valuesObject`): the chart installs its own CRDs (`crds.enabled: true`), and the controller configuration enables `enableGatewayAPI: true`; without it cert-manager does not watch `Gateway` objects.
+- When deploying from scratch, the `cert-manager` namespace is created by `bootstrap.sh`: it is needed for the secret `lab-root-ca` before the chart is installed. The application `cert-manager` still keeps `CreateNamespace=true`.
+- The issuers and the root certificate are in a separate application because their CRDs appear only after the chart is installed. That is why `cert-manager-config` has `SkipDryRunOnMissingResource=true` and sync retries enabled.
+- The certificate authority is internal: it is not publicly trusted, and ACME (Let's Encrypt) is not used, because the names `*.lab.home.arpa` exist only in the local network.
+- The private key of the root certificate lives in the secret `lab-root-ca` in the cluster and in its local copies (see the table below); it is not in Git.
 
-Доверие на клиентских машинах:
+Trust on client machines:
 
-- Браузеры и `curl` не доверяют сертификатам стенда, пока корневой сертификат не добавлен в доверенные на клиентской машине.
-- Корневой сертификат (без ключа) выгружается так:
+- Browsers and `curl` do not trust the lab certificates until the root certificate is added to the trusted store on the client machine.
+- The root certificate (without the key) is exported like this:
 
   ```sh
   kubectl --kubeconfig ./kubeconfig -n cert-manager get secret lab-root-ca \
     -o jsonpath='{.data.ca\.crt}' | base64 -d > lab-root-ca.crt
   ```
 
-- При пересоздании кластера `bootstrap.sh` восстанавливает секрет `lab-root-ca` из локальной копии (`CA_SECRET`), поэтому корневой сертификат и `lab-root-ca.crt` остаются прежними, а доверие на клиентах сохраняется.
-- Если копии нет (первый запуск или файл утерян), cert-manager выпускает корневой сертификат заново с новым ключом: старый `lab-root-ca.crt` перестаёт подходить, доверие нужно настроить повторно. Новый секрет скрипт сохраняет в `CA_SECRET` сам.
+- When the cluster is re-created, `bootstrap.sh` restores the secret `lab-root-ca` from the local copy (`CA_SECRET`), so the root certificate and `lab-root-ca.crt` stay the same and trust on the clients is preserved.
+- If there is no copy (first run, or the file was lost), cert-manager issues the root certificate again with a new key: the old `lab-root-ca.crt` no longer matches, and trust has to be set up again. The script saves the new secret to `CA_SECRET` itself.
 
-Локальные файлы (не в VCS):
+Local files (not in VCS):
 
-| Файл | Содержимое | Секрет |
+| File | Contents | Secret |
 | --- | --- | --- |
-| `~/.lab/lab-root-ca-secret.json` | копия секрета `lab-root-ca` вместе с приватным ключом центра сертификации; её создаёт и читает `bootstrap.sh` (путь — переменная `CA_SECRET`) | да, лежит вне репозитория, права только для владельца |
-| `lab-root-ca.crt` (корень репозитория) | корневой сертификат стенда — его добавляют в доверенные на клиентских машинах | нет; в VCS не попадает: в `.gitignore` внесена маска `*.crt` |
-| `lab-root-ca-secret.yaml` (корень репозитория) | более ранняя ручная выгрузка того же секрета; `bootstrap.sh` её не использует | да, добавлен в `.gitignore` |
+| `~/.lab/lab-root-ca-secret.json` | a copy of the secret `lab-root-ca` together with the private key of the certificate authority; `bootstrap.sh` creates and reads it (the path is the `CA_SECRET` variable) | yes; outside the repository, readable only by the owner |
+| `lab-root-ca.crt` (repository root) | the lab root certificate, which is added to the trusted store on client machines | no; kept out of VCS by the `*.crt` pattern in `.gitignore` |
+| `lab-root-ca-secret.yaml` (repository root) | an earlier manual export of the same secret; `bootstrap.sh` does not use it | yes; listed in `.gitignore` |
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n cert-manager get pods
@@ -456,149 +467,149 @@ kubectl --kubeconfig ./kubeconfig get clusterissuers
 kubectl --kubeconfig ./kubeconfig get certificates -A
 ```
 
-## Секреты (SOPS)
+## Secrets (SOPS)
 
-Секреты платформы хранятся в Git зашифрованными. Шифрует их утилита `sops` ключом age, а в кластере расшифровывает sops-secrets-operator: он превращает объекты `SopsSecret` в обычные `Secret`.
+Platform secrets are stored in Git encrypted. The `sops` utility encrypts them with an age key, and sops-secrets-operator decrypts them in the cluster: it turns `SopsSecret` objects into regular `Secret` objects.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | sops-secrets-operator | 0.21.2 |
-| Helm-чарт | `sops-secrets-operator` 0.28.1 из `https://isindir.github.io/sops-secrets-operator/` |
+| Helm chart | `sops-secrets-operator` 0.28.1 from `https://isindir.github.io/sops-secrets-operator/` |
 | Namespace | `sops-secrets-operator` |
-| Имя релиза | `sops` |
-| Тип ресурса | `SopsSecret` (`isindir.github.com/v1alpha3`) |
-| Ключ в кластере | секрет `sops-age-key-file` (ключ `key`), смонтирован в оператор как `/etc/sops-age-key-file/key` (`SOPS_AGE_KEY_FILE`) |
-| Ключ локально | `~/.lab/age.key` — вне репозитория, права только для владельца |
-| Правила шифрования | `.sops.yaml`: файлы `*.enc.yaml`, получатель — публичный ключ age |
+| Release name | `sops` |
+| Resource type | `SopsSecret` (`isindir.github.com/v1alpha3`) |
+| Key in the cluster | secret `sops-age-key-file` (key `key`), mounted into the operator as `/etc/sops-age-key-file/key` (`SOPS_AGE_KEY_FILE`) |
+| Key locally | `~/.lab/age.key`: outside the repository, readable only by the owner |
+| Encryption rules | `.sops.yaml`: files `*.enc.yaml`, the recipient is the age public key |
 
-Секреты в `gitops/secrets`:
+Secrets in `gitops/secrets`:
 
-| Файл | `SopsSecret` | Создаваемый `Secret` | Назначение |
+| File | `SopsSecret` | Resulting `Secret` | Purpose |
 | --- | --- | --- | --- |
-| `argocd-github-oauth.enc.yaml` | `argocd-github-oauth` в namespace `argocd` | `argocd-github-oauth` | `clientID` и `clientSecret` приложения GitHub OAuth (см. «Вход в Argo CD») |
-| `alertmanager-config.enc.yaml` | `alertmanager-config` в namespace `monitoring` | `alertmanager-config` | конфигурация Alertmanager, ключ `alertmanager.yaml` (см. «Наблюдаемость (мониторинг)») |
-| `talos-backup-s3.enc.yaml` | `talos-backup-s3` в namespace `talos-backup` | `talos-backup-s3` | `AWS_ACCESS_KEY_ID` и `AWS_SECRET_ACCESS_KEY` сервисного аккаунта `sa-etcd-backup` для выгрузки снимков etcd (см. «Резервное копирование etcd») |
+| `argocd-github-oauth.enc.yaml` | `argocd-github-oauth` in the `argocd` namespace | `argocd-github-oauth` | `clientID` and `clientSecret` of the GitHub OAuth app (see "Argo CD login") |
+| `alertmanager-config.enc.yaml` | `alertmanager-config` in the `monitoring` namespace | `alertmanager-config` | the Alertmanager configuration, key `alertmanager.yaml` (see "Observability (monitoring)") |
+| `talos-backup-s3.enc.yaml` | `talos-backup-s3` in the `talos-backup` namespace | `talos-backup-s3` | `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` of the service account `sa-etcd-backup` for uploading etcd snapshots (see "etcd backup") |
 
-Как это устроено:
+How it is built:
 
-- Приложение `sops-secrets-operator` ставит оператор, приложение `platform-secrets` применяет каталог `gitops/secrets`. Argo CD кладёт объекты `SopsSecret` в кластер как есть, не расшифровывая. У `platform-secrets` включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации — на случай, когда CRD оператора ещё не установлен.
-- Шифруется не весь файл, а только поля с суффиксом `Templates` (`encrypted_suffix` в `.sops.yaml`), то есть раздел `spec.secretTemplates`. Тип, имя и namespace объекта `SopsSecret` остаются читаемыми.
-- Приватный ключ age в Git не хранится. В кластер его кладёт `bootstrap.sh` (секрет `sops-age-key-file`) до применения корневого приложения. Ключ один на все пересоздания кластера: если его потерять, файлы из `gitops/secrets` расшифровать будет нечем, и секреты придётся создавать заново.
-- В `.sops.yaml` записан только публичный ключ age — он не секрет.
+- The application `sops-secrets-operator` installs the operator, and the application `platform-secrets` applies the `gitops/secrets` directory. Argo CD puts the `SopsSecret` objects into the cluster as they are, without decrypting them. `platform-secrets` has `SkipDryRunOnMissingResource=true` and sync retries enabled for the case when the operator's CRD is not installed yet.
+- Not the whole file is encrypted, only the fields with the `Templates` suffix (`encrypted_suffix` in `.sops.yaml`), that is, the `spec.secretTemplates` section. The kind, name and namespace of the `SopsSecret` object stay readable.
+- The age private key is not stored in Git. `bootstrap.sh` puts it into the cluster (secret `sops-age-key-file`) before the root application is applied. The same key is used across all cluster re-creations: if it is lost, there is nothing to decrypt the files in `gitops/secrets` with, and the secrets have to be created again.
+- `.sops.yaml` contains only the age public key, which is not a secret.
 
-Работа с секретами (нужны утилиты `sops` и `age`):
+Working with secrets (requires the `sops` and `age` utilities):
 
 ```sh
 export SOPS_AGE_KEY_FILE=~/.lab/age.key
 
-# Изменить существующий секрет: sops расшифрует его в редакторе и зашифрует при сохранении
+# Change an existing secret: sops decrypts it in the editor and encrypts it on save
 sops gitops/secrets/alertmanager-config.enc.yaml
 
-# Добавить новый: написать манифест SopsSecret в открытом виде и зашифровать на месте
-sops --encrypt --in-place gitops/secrets/<имя>.enc.yaml
+# Add a new one: write the SopsSecret manifest in plain text and encrypt it in place
+sops --encrypt --in-place gitops/secrets/<name>.enc.yaml
 ```
 
-Имя файла должно заканчиваться на `.enc.yaml`, иначе правило из `.sops.yaml` не сработает. Перед коммитом проверь, что в `spec.secretTemplates` стоят значения `ENC[...]`.
+The file name must end with `.enc.yaml`, otherwise the rule from `.sops.yaml` does not apply. Before committing, check that `spec.secretTemplates` holds `ENC[...]` values.
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n sops-secrets-operator get pods
 kubectl --kubeconfig ./kubeconfig get sopssecrets -A
 ```
 
-У всех объектов `SopsSecret` должен быть статус `Healthy`.
+All `SopsSecret` objects must have the status `Healthy`.
 
-## Наблюдаемость (мониторинг)
+## Observability (monitoring)
 
-Метрики, алерты и дашборды ставятся одним чартом `victoria-metrics-k8s-stack` через приложение Argo CD `monitoring`. Вместо Prometheus используется VictoriaMetrics: при той же совместимости он заметно экономнее по памяти. Сбор логов пока не настроен (см. «Открытые вопросы»).
+Metrics, alerts and dashboards are installed by a single chart, `victoria-metrics-k8s-stack`, through the Argo CD application `monitoring`. VictoriaMetrics is used instead of Prometheus: with the same compatibility it needs noticeably less memory. Log collection is not set up yet (see "Open questions").
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
-| Helm-чарт | `victoria-metrics-k8s-stack` 0.95.2 из `https://victoriametrics.github.io/helm-charts/` |
+| Helm chart | `victoria-metrics-k8s-stack` 0.95.2 from `https://victoriametrics.github.io/helm-charts/` |
 | Namespace | `monitoring` |
-| Имя релиза | `vmks` (`fullnameOverride: vmks`) |
-| Оператор | VictoriaMetrics operator v0.75.0 |
-| Хранение метрик | `VMSingle` `vmks`, VictoriaMetrics v1.153.0, срок хранения — 7 дней, том `emptyDir` |
-| Сбор метрик | `VMAgent` `vmks` v1.153.0 |
-| Правила и алерты | `VMAlert` `vmks` v1.153.0 |
-| Уведомления | Alertmanager v0.34.0 (`VMAlertmanager` `vmks`), по почте |
-| Дашборды | Grafana 13.2.3 — https://grafana.lab.home.arpa |
-| Экспортёры | node-exporter v1.12.1 (на всех трёх узлах), kube-state-metrics v2.20.0 |
+| Release name | `vmks` (`fullnameOverride: vmks`) |
+| Operator | VictoriaMetrics operator v0.75.0 |
+| Metrics storage | `VMSingle` `vmks`, VictoriaMetrics v1.153.0, retention 7 days, `emptyDir` volume |
+| Metrics collection | `VMAgent` `vmks` v1.153.0 |
+| Rules and alerts | `VMAlert` `vmks` v1.153.0 |
+| Notifications | Alertmanager v0.34.0 (`VMAlertmanager` `vmks`), by email |
+| Dashboards | Grafana 13.2.3 at https://grafana.lab.home.arpa |
+| Exporters | node-exporter v1.12.1 (on all three nodes), kube-state-metrics v2.20.0 |
 
-Особенности (значения чарта — в `gitops/apps/monitoring.yaml`):
+Notes (chart values in `gitops/apps/monitoring.yaml`):
 
-- Постоянного хранилища в кластере нет (см. «Открытые вопросы»), поэтому метрики лежат в `emptyDir`: у `VMSingle` отключён `storage` и том `data` задан явно. При пересоздании пода `vmsingle-vmks` накопленные метрики теряются.
-- Отключён сбор метрик etcd, планировщика, controller manager и kube-proxy (`kubeEtcd`, `kubeScheduler`, `kubeControllerManager`, `kubeProxy`): kube-proxy в кластере нет (его заменяет Cilium), метрики остальных трёх компонентов не собираются.
-- Namespace `monitoring` создаёт Argo CD (`CreateNamespace=true`) с меткой `pod-security.kubernetes.io/enforce: privileged`: node-exporter читает данные хоста, а Talos по умолчанию применяет профиль `baseline`.
-- У приложения включён `ServerSideApply=true`: описания типов ресурсов оператора слишком большие для обычного `apply`.
-- Пароль администратора Grafana чарт генерирует заново при каждой отрисовке, поэтому поле `/data/admin-password` секрета `vmks-grafana` исключено из сравнения (`ignoreDifferences` и `RespectIgnoreDifferences=true`). Иначе приложение всегда было бы `OutOfSync`.
-- Grafana опубликована через общий шлюз: `HTTPRoute` `grafana` в namespace `monitoring` (`gitops/gateway/grafana-route.yaml`), сервис `vmks-grafana:80` остаётся `ClusterIP`.
+- There is no persistent storage in the cluster (see "Open questions"), so metrics live in `emptyDir`: `storage` is disabled for `VMSingle` and the `data` volume is set explicitly. When the pod `vmsingle-vmks` is re-created, the accumulated metrics are lost.
+- Metrics collection for etcd, the scheduler, the controller manager and kube-proxy is disabled (`kubeEtcd`, `kubeScheduler`, `kubeControllerManager`, `kubeProxy`): there is no kube-proxy in the cluster (Cilium replaces it), and metrics of the other three components are not collected.
+- Argo CD creates the `monitoring` namespace (`CreateNamespace=true`) with the label `pod-security.kubernetes.io/enforce: privileged`: node-exporter reads host data, and Talos applies the `baseline` profile by default.
+- The application has `ServerSideApply=true` enabled: the operator's resource type definitions are too large for a regular `apply`.
+- The chart generates the Grafana admin password anew on every render, so the field `/data/admin-password` of the secret `vmks-grafana` is excluded from comparison (`ignoreDifferences` and `RespectIgnoreDifferences=true`). Otherwise the application would always be `OutOfSync`.
+- Grafana is published through the shared gateway: `HTTPRoute` `grafana` in the `monitoring` namespace (`gitops/gateway/grafana-route.yaml`); the service `vmks-grafana:80` stays `ClusterIP`.
 
-Алерты и уведомления:
+Alerts and notifications:
 
-- Конфигурацию Alertmanager берёт из секрета `alertmanager-config` (`alertmanager.spec.configSecret`), а не из значений чарта. Секрет создаёт sops-secrets-operator из `gitops/secrets/alertmanager-config.enc.yaml`: в конфигурации лежат адрес и пароль почтового сервера, поэтому в Git она зашифрована.
-- Получатель по умолчанию — `email`: письма через SMTP. Алерты группируются по `alertname` и `namespace`, повтор — раз в 4 часа.
-- Алерты с `severity = "info"` и служебный `InfoInhibitor` уходят получателю `blackhole`, то есть письма по ним не отправляются.
-- `Watchdog` (постоянно активный алерт-проверка) отправляется раз в минуту на внешний webhook — получатель `deadmans-switch`. Если сигналы перестают приходить, значит, не работает сам мониторинг.
-- Чтобы изменить получателей или маршруты, отредактируй зашифрованный файл через `sops` (см. «Секреты (SOPS)») и отправь коммит в `main`.
+- Alertmanager takes its configuration from the secret `alertmanager-config` (`alertmanager.spec.configSecret`), not from the chart values. sops-secrets-operator creates the secret from `gitops/secrets/alertmanager-config.enc.yaml`: the configuration contains the mail server address and password, so it is encrypted in Git.
+- The default receiver is `email`: messages go out over SMTP. Alerts are grouped by `alertname` and `namespace` and repeated every 4 hours.
+- Alerts with `severity = "info"` and the service alert `InfoInhibitor` go to the `blackhole` receiver, so no emails are sent for them.
+- `Watchdog` (an always-firing check alert) is sent once a minute to an external webhook, the `deadmans-switch` receiver. If the signals stop arriving, the monitoring itself is down.
+- To change receivers or routes, edit the encrypted file with `sops` (see "Secrets (SOPS)") and push a commit to `main`.
 
-Вход в Grafana — пользователь `admin`, пароль лежит в секрете `vmks-grafana`:
+Grafana login: user `admin`, the password is in the secret `vmks-grafana`:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n monitoring get secret vmks-grafana \
   -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n monitoring get pods
 kubectl --kubeconfig ./kubeconfig -n monitoring get vmsingle,vmagent,vmalert,vmalertmanager
 ```
 
-## Резервное копирование etcd
+## etcd backup
 
-Снимки etcd снимает [talos-backup](https://github.com/siderolabs/talos-backup) — утилита Sidero Labs, которая работает в кластере как `CronJob`, получает снимок через Talos API и выгружает его в S3. Манифесты — в каталоге `gitops/talos-backup`, приложение Argo CD — `talos-backup`.
+etcd snapshots are taken by [talos-backup](https://github.com/siderolabs/talos-backup), a Sidero Labs utility that runs in the cluster as a `CronJob`, gets a snapshot through the Talos API and uploads it to S3. The manifests are in the `gitops/talos-backup` directory; the Argo CD application is `talos-backup`.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
-| Образ | `ghcr.io/siderolabs/talos-backup:v0.1.0-beta.3-10-gb9fd478` |
+| Image | `ghcr.io/siderolabs/talos-backup:v0.1.0-beta.3-10-gb9fd478` |
 | Namespace | `talos-backup` |
-| Расписание | `15 */3 * * *` — каждые 3 часа; пропущенный запуск догоняется в течение часа, параллельные запуски запрещены |
-| Куда | бакет `lab-etcd-backup-2a7416`, ключи вида `etcd/lab-<время в UTC>.snap.zst.age` |
-| Обработка | сжатие zstd, затем шифрование age отдельным ключом резервных копий |
-| Срок хранения | 30 дней; первые 14 дней снимок нельзя удалить или перезаписать (Object Lock, см. «Облачное хранилище (cloud.ru)») |
-| RPO | до 3 часов (интервал между снимками) |
-| Восстановление | runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md), последняя проверка — 2026-10-11 |
+| Schedule | `15 */3 * * *`: every 3 hours; a missed run is caught up within an hour, concurrent runs are forbidden |
+| Destination | bucket `lab-etcd-backup-2a7416`, keys of the form `etcd/lab-<UTC time>.snap.zst.age` |
+| Processing | zstd compression, then age encryption with a dedicated backup key |
+| Retention | 30 days; for the first 14 days a snapshot can be neither deleted nor overwritten (Object Lock, see "Cloud storage (cloud.ru)") |
+| RPO | up to 3 hours (the interval between snapshots) |
+| Restore | runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md), last tested 2026-10-11 |
 
-Как это устроено:
+How it is built:
 
-- Доступ к Talos API из пода разрешён документом `KubeTalosAPIAccessConfig` в machine config control plane (`main.tf`): только namespace `talos-backup` и только роль `os:etcd:backup`. Ничего, кроме снимка etcd, с этим доступом сделать нельзя.
-- Объект `ServiceAccount` Talos (`talos.dev/v1alpha1`, `talos-serviceaccount.yaml`) запрашивает эту роль. Talos создаёт по нему секрет `talos-backup-secrets` с конфигом для доступа к API; он смонтирован в под как `/var/run/secrets/talos.dev`.
-- Ключи доступа к бакету лежат в секрете `talos-backup-s3`, который sops-secrets-operator создаёт из `gitops/secrets/talos-backup-s3.enc.yaml` (см. «Секреты (SOPS)»). Это ключи сервисного аккаунта cloud.ru `sa-etcd-backup`.
-- Снимок шифруется публичным ключом age, записанным в `cronjob.yaml` (`AGE_RECIPIENT_PUBLIC_KEY`). Это отдельный ключ, не тот, которым зашифрованы секреты в Git. Приватный ключ лежит только локально в `~/.lab/etcd-backup.age.key` и в Bitwarden, в кластере его нет: с доступом к кластеру или к бакету снимок не прочитать. Если ключ потерять, снимки расшифровать будет нечем.
-- Под работает без прав root, со сброшенными capabilities; запрошено 50m CPU и 64 МиБ памяти, предел памяти — 512 МиБ. Задание прерывается через 15 минут, повторных попыток — две.
-- Снимок занимает около 27 МБ, после сжатия и шифрования — около 3 МБ.
+- Access to the Talos API from the pod is allowed by the `KubeTalosAPIAccessConfig` document in the control plane machine config (`main.tf`): only the `talos-backup` namespace and only the `os:etcd:backup` role. Nothing except an etcd snapshot can be done with this access.
+- The Talos `ServiceAccount` object (`talos.dev/v1alpha1`, `talos-serviceaccount.yaml`) requests this role. From it Talos creates the secret `talos-backup-secrets` with a config for API access; it is mounted into the pod at `/var/run/secrets/talos.dev`.
+- The bucket access keys are in the secret `talos-backup-s3`, which sops-secrets-operator creates from `gitops/secrets/talos-backup-s3.enc.yaml` (see "Secrets (SOPS)"). These are the keys of the cloud.ru service account `sa-etcd-backup`.
+- The snapshot is encrypted with the age public key written in `cronjob.yaml` (`AGE_RECIPIENT_PUBLIC_KEY`). This is a separate key, not the one the secrets in Git are encrypted with. The private key is kept only locally in `~/.lab/etcd-backup.age.key` and in Bitwarden; it is not in the cluster, so access to the cluster or to the bucket is not enough to read a snapshot. If the key is lost, there is nothing to decrypt the snapshots with.
+- The pod runs as non-root with all capabilities dropped; it requests 50m CPU and 64 MiB of memory, with a memory limit of 512 MiB. The job is terminated after 15 minutes and retried twice.
+- A snapshot takes about 27 MB, and about 3 MB after compression and encryption.
 
-Алерты (`VMRule` `talos-backup` в namespace `monitoring`, `gitops/talos-backup/alerts.yaml`):
+Alerts (`VMRule` `talos-backup` in the `monitoring` namespace, `gitops/talos-backup/alerts.yaml`):
 
-| Алерт | Условие |
+| Alert | Condition |
 | --- | --- |
-| `EtcdBackupTooOld` | последний успешный снимок старше 16 часов (в течение 15 минут). Порог выше интервала, потому что кластер выключается на ночь |
-| `EtcdBackupNeverSucceeded` | у `CronJob` в течение 12 часов не было ни одного успешного запуска |
+| `EtcdBackupTooOld` | the last successful snapshot is older than 16 hours (for 15 minutes). The threshold is above the interval because the cluster is shut down overnight |
+| `EtcdBackupNeverSucceeded` | the `CronJob` has had no successful run for 12 hours |
 
-Оба — уровня `warning` и приходят по почте. Упавшее задание дополнительно ловит стандартный алерт `KubeJobFailed` из чарта мониторинга.
+Both are `warning` level and arrive by email. A failed job is additionally caught by the standard `KubeJobFailed` alert from the monitoring chart.
 
-Восстановление:
+Restore:
 
-- Порядок действий — в runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md): выбор и расшифровка снимка, очистка раздела `EPHEMERAL` на control plane, `talosctl bootstrap --recover-from`, перезапуск Cilium, уборка устаревших объектов, проверка.
-- Снимки скачиваются и расшифровываются в каталоге `.restore/` в корне репозитория (внесён в `.gitignore`). Расшифрованный снимок содержит все секреты кластера: после восстановления его нужно удалить.
-- Снимок подходит только к кластеру с прежними секретами Talos (они лежат в state Terraform). Если кластер пересоздан с новыми секретами, сертификаты узлов не совпадут со снимком.
-- После восстановления обязательно перезапусти Cilium на всех узлах (`kubectl -n kube-system rollout restart ds/cilium`): пока API-сервер недоступен, агенты на worker-узлах теряют адрес сервиса `kubernetes` и сами его не возвращают. Узлы при этом остаются `Ready`, приложения Argo CD — `Healthy`, а поды на worker-узлах не достают до API.
-- Учебное восстановление 2026-10-11 (очистка `EPHEMERAL` на `talos-cp1`, снимок из S3): control plane вернулся за 5 минут, полностью рабочее состояние — через 40 минут вместе с диагностикой. По его итогам в runbook добавлены перезапуск Cilium и уборка устаревших объектов.
+- The procedure is in the runbook [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md): picking and decrypting a snapshot, wiping the `EPHEMERAL` partition on the control plane, `talosctl bootstrap --recover-from`, restarting Cilium, cleaning up stale objects, verification.
+- Snapshots are downloaded and decrypted in the `.restore/` directory in the repository root (listed in `.gitignore`). A decrypted snapshot contains all the cluster secrets: it has to be deleted after the restore.
+- A snapshot fits only a cluster with the same Talos secrets (they live in the Terraform state). If the cluster was re-created with new secrets, the node certificates will not match the snapshot.
+- After a restore, always restart Cilium on all nodes (`kubectl -n kube-system rollout restart ds/cilium`): while the API server is unavailable, the agents on the worker nodes lose the address of the `kubernetes` service and do not bring it back themselves. The nodes stay `Ready` and the Argo CD applications stay `Healthy`, while pods on the worker nodes cannot reach the API.
+- Restore drill on 2026-10-11 (wipe of `EPHEMERAL` on `talos-cp1`, snapshot from S3): the control plane was back in 5 minutes, and the fully working state took 40 minutes including diagnosis. As a result, the Cilium restart and the cleanup of stale objects were added to the runbook.
 
-Проверка состояния и запуск снимка вручную:
+Status check and a manual snapshot run:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n talos-backup get cronjob,jobs
@@ -606,28 +617,28 @@ kubectl --kubeconfig ./kubeconfig -n talos-backup create job --from=cronjob/talo
 aws --profile cloudru --endpoint-url https://s3.cloud.ru s3 ls s3://lab-etcd-backup-2a7416/etcd/
 ```
 
-## Балансировка (MetalLB)
+## Load balancing (MetalLB)
 
-Сервисы типа `LoadBalancer` получают внешние адреса от MetalLB. Он установлен через Argo CD двумя приложениями: `metallb` ставит сам MetalLB, `metallb-config` — его настройки.
+`LoadBalancer` services get external addresses from MetalLB. It is installed through Argo CD as two applications: `metallb` installs MetalLB itself, and `metallb-config` installs its settings.
 
-| Параметр | Значение |
+| Parameter | Value |
 | --- | --- |
 | MetalLB | v0.16.1 |
-| Helm-чарт | `metallb` 0.16.1 из `https://metallb.github.io/metallb` |
+| Helm chart | `metallb` 0.16.1 from `https://metallb.github.io/metallb` |
 | Namespace | `metallb-system` |
-| Режим | L2 (ARP) |
-| Пул адресов | `lan`: 192.168.91.220–192.168.91.230, автоназначение включено |
-| Анонс | `L2Advertisement` `lan` для пула `lan` |
+| Mode | L2 (ARP) |
+| Address pool | `lan`: 192.168.91.220–192.168.91.230, auto-assignment enabled |
+| Advertisement | `L2Advertisement` `lan` for the pool `lan` |
 
-Особенности:
+Notes:
 
-- Значения чарта не переопределяются, используется конфигурация по умолчанию.
-- Namespace `metallb-system` создаёт Argo CD (`CreateNamespace=true`) с меткой `pod-security.kubernetes.io/enforce: privileged`: speaker работает в сети хоста, а Talos по умолчанию применяет профиль `baseline`.
-- `IPAddressPool` и `L2Advertisement` вынесены в отдельное приложение, потому что их CRD появляются только после установки чарта. Поэтому у `metallb-config` включены `SkipDryRunOnMissingResource=true` и повторные попытки синхронизации.
-- Адреса пула не должны пересекаться с DHCP-диапазоном роутера и адресами узлов.
-- Адрес 192.168.91.220 закреплён за сервисом шлюза `cilium-gateway-lab` аннотацией `metallb.io/loadBalancerIPs`; остальные адреса пула свободны.
+- The chart values are not overridden; the default configuration is used.
+- Argo CD creates the `metallb-system` namespace (`CreateNamespace=true`) with the label `pod-security.kubernetes.io/enforce: privileged`: the speaker runs in the host network, and Talos applies the `baseline` profile by default.
+- `IPAddressPool` and `L2Advertisement` are in a separate application because their CRDs appear only after the chart is installed. That is why `metallb-config` has `SkipDryRunOnMissingResource=true` and sync retries enabled.
+- The pool addresses must not overlap with the router's DHCP range or with the node addresses.
+- The address 192.168.91.220 is pinned to the gateway service `cilium-gateway-lab` by the annotation `metallb.io/loadBalancerIPs`; the other pool addresses are free.
 
-Проверка состояния:
+Status check:
 
 ```sh
 kubectl --kubeconfig ./kubeconfig -n metallb-system get pods
@@ -635,62 +646,65 @@ kubectl --kubeconfig ./kubeconfig -n metallb-system get ipaddresspools,l2adverti
 kubectl --kubeconfig ./kubeconfig get svc -A | grep LoadBalancer
 ```
 
-## Ресурсы
+## Resources
 
-Доступный бюджет ресурсов на Proxmox:
+The resource budget available on Proxmox:
 
-| Ресурс | Объём |
+| Resource | Amount |
 | --- | --- |
 | vCPU | 12 |
-| RAM | 16 ГБ |
+| RAM | 16 GB |
 
-Все виртуальные машины MVP должны укладываться в этот бюджет.
+All MVP virtual machines must fit into this budget.
 
-Текущее распределение (задано в `terraform.tfvars`):
+Current allocation (set in `terraform.tfvars`):
 
-| Узел | vCPU | RAM | Диск |
+| Node | vCPU | RAM | Disk |
 | --- | --- | --- | --- |
-| `talos-cp1` | 2 | 4 ГБ | 20 ГБ |
-| `talos-w1` | 4 | 5 ГБ | 20 ГБ |
-| `talos-w2` | 4 | 5 ГБ | 20 ГБ |
-| **Итого** | **10** | **14 ГБ** | **60 ГБ** |
+| `talos-cp1` | 2 | 4 GB | 20 GB |
+| `talos-w1` | 4 | 5 GB | 20 GB |
+| `talos-w2` | 4 | 5 GB | 20 GB |
+| **Total** | **10** | **14 GB** | **60 GB** |
 
-Остаток — 2 vCPU и 2 ГБ RAM — на накладные расходы Proxmox.
+The remainder, 2 vCPU and 2 GB of RAM, is left for Proxmox overhead.
 
-## Открытые вопросы
+## Open questions
 
-Будут решены позже:
+To be decided later:
 
-- окончательное распределение ресурсов между ВМ (текущее — в разделе «Ресурсы»);
-- хранилище в кластере (пока его нет, метрики VictoriaMetrics лежат в `emptyDir`);
-- сбор логов (метрики и алерты уже есть, см. «Наблюдаемость (мониторинг)»);
-- механизм запуска и сброса сценариев тренажёра.
+- the final resource allocation between the VMs (the current one is in "Resources");
+- storage in the cluster (there is none yet, so VictoriaMetrics metrics live in `emptyDir`);
+- log collection (metrics and alerts are already in place, see "Observability (monitoring)");
+- the mechanism for starting and resetting trainer scenarios.
 
-## Статус
+## Status
 
-Кластер Talos `lab` (1 control plane и 2 worker-узла) развёрнут скриптом `bootstrap.sh` и работает. В кластере установлены Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator, стек мониторинга на VictoriaMetrics и резервное копирование etcd (`talos-backup`). Приложения `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets`, `monitoring` и `talos-backup` — `Synced` и `Healthy`. Единственный сервис типа `LoadBalancer` — шлюз `lab` (192.168.91.220); через него из локальной сети по HTTPS доступны Argo CD (https://argocd.lab.home.arpa, вход через GitHub), Hubble UI (https://hubble.lab.home.arpa) и Grafana (https://grafana.lab.home.arpa), запросы по HTTP перенаправляются на HTTPS. Алерты приходят по почте. State Terraform хранится в Object Storage cloud.ru; туда же каждые 3 часа выгружаются зашифрованные снимки etcd, восстановление из снимка проверено 2026-10-11. Прикладные компоненты и остальные открытые вопросы — впереди.
+The Talos cluster `lab` (1 control plane and 2 worker nodes) is deployed by the `bootstrap.sh` script and is running. The cluster has Cilium, Argo CD, MetalLB, Gateway API, cert-manager, sops-secrets-operator, a VictoriaMetrics monitoring stack and etcd backup (`talos-backup`) installed. The applications `root`, `argocd`, `cilium`, `metallb`, `metallb-config`, `gateway-api-crds`, `gateway`, `cert-manager`, `cert-manager-config`, `sops-secrets-operator`, `platform-secrets`, `monitoring` and `talos-backup` are `Synced` and `Healthy`. The only `LoadBalancer` service is the gateway `lab` (192.168.91.220); through it Argo CD (https://argocd.lab.home.arpa, GitHub login), Hubble UI (https://hubble.lab.home.arpa) and Grafana (https://grafana.lab.home.arpa) are available over HTTPS from the local network, and HTTP requests are redirected to HTTPS. Alerts arrive by email. The Terraform state is stored in cloud.ru Object Storage; encrypted etcd snapshots are uploaded there every 3 hours, and restore from a snapshot was tested on 2026-10-11. Application components and the remaining open questions are still ahead.
 
-## Журнал изменений
+## Changelog
 
-- 2026-10-03 — Proxmox VE обновлён до версии 9.2.21.
-- 2026-10-03 — зафиксированы статические IP-адреса узлов Talos на роутере: master — 192.168.91.201, worker-узлы — 192.168.91.211 и 192.168.91.212.
-- 2026-10-03 — вручную поднят кластер Talos `lab`: Talos v1.14.2, Kubernetes v1.37.1, все три узла `Ready`.
-- 2026-10-05 — кластер `lab` пересоздан через Terraform (провайдеры `bpg/proxmox` и `siderolabs/talos`): Talos v1.14.2, Kubernetes v1.37.0, узлы `talos-cp1`, `talos-w1`, `talos-w2`. Провижининг перенесён из открытых вопросов в принятые решения.
-- 2026-10-05 — в кластер установлен Argo CD v3.5.3 (чарт `argo-cd` 10.9.6), создано корневое приложение `root` по схеме app of apps. Доставка приложений перенесена из открытых вопросов в принятые решения.
-- 2026-10-06 — через Argo CD установлен MetalLB v0.16.1 (чарт `metallb` 0.16.1) в режиме L2 с пулом адресов 192.168.91.220–192.168.91.230. Балансировка перенесена из открытых вопросов в принятые решения.
-- 2026-10-07 — CNI кластера заменён на Cilium v1.20.2 (чарт `cilium` 1.20.2) с Hubble: встроенные Flannel и kube-proxy отключены в machine config, добавлено приложение Argo CD `cilium`. CNI перенесён из открытых вопросов в принятые решения.
-- 2026-10-07 — добавлен скрипт `bootstrap.sh`, поднимающий кластер с нуля (Terraform, Cilium, Argo CD, секрет доступа к репозиторию, корневое приложение). Кластер `lab` пересоздан этим скриптом.
-- 2026-10-07 — у ВМ включено устройство QEMU guest agent: без него узлы с расширением `qemu-guest-agent` оставались в стадии `Booting`.
-- 2026-10-07 — установлен Gateway API v1.6.1 в реализации Cilium: приложения Argo CD `gateway-api-crds` и `gateway`, шлюз `lab` на 192.168.91.220 (HTTP, `*.lab.home.arpa`). Argo CD и Hubble UI опубликованы по именам `argocd.lab.home.arpa` и `hubble.lab.home.arpa`; `argocd-server` переведён в режим без TLS. В `bootstrap.sh` добавлена установка CRD Gateway API перед Cilium. Ingress перенесён из открытых вопросов в принятые решения.
-- 2026-10-08 — через Argo CD установлен cert-manager v1.21.2 (чарт `cert-manager` v1.21.2) с поддержкой Gateway API, создан собственный центр сертификации стенда: `ClusterIssuer` `selfsigned-bootstrap`, корневой сертификат `lab-root-ca`, рабочий издатель `lab-ca`.
-- 2026-10-08 — шлюз `lab` переведён на HTTPS: добавлен listener `https` (порт 443) с сертификатом `*.lab.home.arpa` от `lab-ca`, маршруты `argocd` и `hubble` привязаны к нему, HTTP оставлен только для перенаправления на HTTPS (`HTTPRoute` `http-to-https`). TLS для входящего трафика перенесён из открытых вопросов в принятые решения.
-- 2026-10-08 — `bootstrap.sh` сохраняет корневой сертификат стенда между пересозданиями кластера: секрет `lab-root-ca` восстанавливается из локальной копии (`CA_SECRET`, по умолчанию `~/.lab/lab-root-ca-secret.json`) до запуска cert-manager, а при первом запуске без копии сохраняется в неё. Скрипт также проверяет окружение перед началом (утилиты, включая `jq`, и deploy-ключ), не переустанавливает CRD Gateway API, Cilium и Argo CD на работающем кластере; версия Gateway API вынесена в переменную `GATEWAY_API_VERSION`.
-- 2026-10-08 — через Argo CD установлен sops-secrets-operator 0.21.2 (чарт `sops-secrets-operator` 0.28.1): секреты хранятся в Git зашифрованными `sops` с ключом age. `bootstrap.sh` проверяет наличие ключа (`AGE_KEY`, по умолчанию `~/.lab/age.key`) и кладёт его в кластер секретом `sops-age-key-file`.
-- 2026-10-09 — добавлены правила шифрования `.sops.yaml` и приложение `platform-secrets` с каталогом `gitops/secrets`. Вход в Argo CD переведён на GitHub OAuth через Dex (секрет `argocd-github-oauth`), локальная учётная запись `admin` отключена, права выдаются в `configs.rbac`.
-- 2026-10-10 — через Argo CD установлен стек мониторинга: чарт `victoria-metrics-k8s-stack` 0.95.2 (VictoriaMetrics v1.153.0, Alertmanager, Grafana 13.2.3), приложение `monitoring`. Метрики хранятся 7 дней в `emptyDir`. Grafana опубликована по адресу https://grafana.lab.home.arpa. Конфигурация Alertmanager хранится в зашифрованном секрете `alertmanager-config`: уведомления по почте, алерты уровня `info` не отправляются. Метрики и алерты перенесены из открытых вопросов в принятые решения, сбор логов остаётся открытым.
-- 2026-10-10 — в `.gitignore` добавлена маска `*.crt`: `lab-root-ca.crt` больше не может попасть в репозиторий.
-- 2026-10-11 — в Object Storage cloud.ru созданы бакеты `lab-tfstate-2a7416` (state Terraform, версионирование) и `lab-etcd-backup-2a7416` (снимки etcd: версионирование, Object Lock на 14 дней, удаление через 30 дней). Они описаны отдельной Terraform-конфигурацией в каталоге `cloud/`.
-- 2026-10-11 — state Terraform перенесён из локальных файлов в бакет `lab-tfstate-2a7416`: кластер — ключ `talos/terraform.tfstate` (`backend.tf`), бакеты — `cloud/terraform.tfstate` (`cloud/backend.tf`), блокировка через `use_lockfile`.
-- 2026-10-11 — добавлен `.envrc` для direnv: `KUBECONFIG`, `TALOSCONFIG`, `SOPS_AGE_KEY_FILE`, `AWS_PROFILE` и `TF_INPUT`. Токен Proxmox подставляется из системного keyring через `.envrc.local` (в `.gitignore`), в keyring его кладёт скрипт `lab-secrets-sync` из Bitwarden.
-- 2026-10-11 — настроено резервное копирование etcd: `talos-backup` (`CronJob` в namespace `talos-backup`, приложение Argo CD `talos-backup`) каждые 3 часа снимает снимок, сжимает его zstd, шифрует age и выгружает в бакет `lab-etcd-backup-2a7416`. В machine config control plane добавлен `KubeTalosAPIAccessConfig` (роль `os:etcd:backup` для namespace `talos-backup`), ключи доступа к бакету — в зашифрованном секрете `talos-backup-s3`, алерты `EtcdBackupTooOld` и `EtcdBackupNeverSucceeded`. Резервное копирование etcd перенесено из открытых вопросов в принятые решения.
-- 2026-10-11 — проведено учебное восстановление etcd из снимка, по его итогам написан runbook `docs/runbooks/etcd-restore.md`. В `.gitignore` добавлен каталог `.restore/`.
+- 2026-10-03: Proxmox VE upgraded to version 9.2.21.
+- 2026-10-03: static IP addresses of the Talos nodes fixed on the router: master 192.168.91.201, worker nodes 192.168.91.211 and 192.168.91.212.
+- 2026-10-03: the Talos cluster `lab` brought up by hand: Talos v1.14.2, Kubernetes v1.37.1, all three nodes `Ready`.
+- 2026-10-05: the cluster `lab` re-created with Terraform (providers `bpg/proxmox` and `siderolabs/talos`): Talos v1.14.2, Kubernetes v1.37.0, nodes `talos-cp1`, `talos-w1`, `talos-w2`. Provisioning moved from open questions to decisions made.
+- 2026-10-05: Argo CD v3.5.3 (chart `argo-cd` 10.9.6) installed in the cluster, and the root application `root` created following the app of apps pattern. Application delivery moved from open questions to decisions made.
+- 2026-10-06: MetalLB v0.16.1 (chart `metallb` 0.16.1) installed through Argo CD in L2 mode with the address pool 192.168.91.220–192.168.91.230. Load balancing moved from open questions to decisions made.
+- 2026-10-07: the cluster CNI replaced with Cilium v1.20.2 (chart `cilium` 1.20.2) with Hubble: the built-in Flannel and kube-proxy are disabled in the machine config, and the Argo CD application `cilium` was added. CNI moved from open questions to decisions made.
+- 2026-10-07: the `bootstrap.sh` script added; it brings the cluster up from scratch (Terraform, Cilium, Argo CD, the repository access secret, the root application). The cluster `lab` was re-created with this script.
+- 2026-10-07: the QEMU guest agent device enabled on the VMs: without it, nodes with the `qemu-guest-agent` extension stayed in the `Booting` stage.
+- 2026-10-07: Gateway API v1.6.1 implemented by Cilium installed: Argo CD applications `gateway-api-crds` and `gateway`, the gateway `lab` on 192.168.91.220 (HTTP, `*.lab.home.arpa`). Argo CD and Hubble UI published under the names `argocd.lab.home.arpa` and `hubble.lab.home.arpa`; `argocd-server` switched to running without TLS. Installation of the Gateway API CRDs before Cilium added to `bootstrap.sh`. Ingress moved from open questions to decisions made.
+- 2026-10-08: cert-manager v1.21.2 (chart `cert-manager` v1.21.2) installed through Argo CD with Gateway API support, and the lab's own certificate authority created: `ClusterIssuer` `selfsigned-bootstrap`, the root certificate `lab-root-ca`, the working issuer `lab-ca`.
+- 2026-10-08: the gateway `lab` switched to HTTPS: the `https` listener (port 443) added with the certificate `*.lab.home.arpa` from `lab-ca`, the routes `argocd` and `hubble` attached to it, and HTTP kept only for the redirect to HTTPS (`HTTPRoute` `http-to-https`). TLS for inbound traffic moved from open questions to decisions made.
+- 2026-10-08: `bootstrap.sh` keeps the lab root certificate across cluster re-creations: the secret `lab-root-ca` is restored from the local copy (`CA_SECRET`, `~/.lab/lab-root-ca-secret.json` by default) before cert-manager starts, and on the first run without a copy it is saved there. The script also checks the environment before starting (utilities, including `jq`, and the deploy key) and does not reinstall the Gateway API CRDs, Cilium or Argo CD on a running cluster; the Gateway API version moved to the `GATEWAY_API_VERSION` variable.
+- 2026-10-08: sops-secrets-operator 0.21.2 (chart `sops-secrets-operator` 0.28.1) installed through Argo CD: secrets are stored in Git encrypted by `sops` with an age key. `bootstrap.sh` checks that the key exists (`AGE_KEY`, `~/.lab/age.key` by default) and puts it into the cluster as the secret `sops-age-key-file`.
+- 2026-10-09: the `.sops.yaml` encryption rules and the application `platform-secrets` with the `gitops/secrets` directory added. Argo CD login switched to GitHub OAuth through Dex (secret `argocd-github-oauth`), the local `admin` account disabled, permissions granted in `configs.rbac`.
+- 2026-10-10: the monitoring stack installed through Argo CD: chart `victoria-metrics-k8s-stack` 0.95.2 (VictoriaMetrics v1.153.0, Alertmanager, Grafana 13.2.3), application `monitoring`. Metrics are kept for 7 days in `emptyDir`. Grafana published at https://grafana.lab.home.arpa. The Alertmanager configuration is stored in the encrypted secret `alertmanager-config`: notifications go by email, and `info` level alerts are not sent. Metrics and alerts moved from open questions to decisions made; log collection stays open.
+- 2026-10-10: the `*.crt` pattern added to `.gitignore`: `lab-root-ca.crt` can no longer end up in the repository.
+- 2026-10-11: the buckets `lab-tfstate-2a7416` (Terraform state, versioning) and `lab-etcd-backup-2a7416` (etcd snapshots: versioning, Object Lock for 14 days, deletion after 30 days) created in cloud.ru Object Storage. They are described by a separate Terraform configuration in the `cloud/` directory.
+- 2026-10-11: the Terraform state moved from local files to the bucket `lab-tfstate-2a7416`: the cluster under the key `talos/terraform.tfstate` (`backend.tf`), the buckets under `cloud/terraform.tfstate` (`cloud/backend.tf`), locking via `use_lockfile`.
+- 2026-10-11: `.envrc` for direnv added: `KUBECONFIG`, `TALOSCONFIG`, `SOPS_AGE_KEY_FILE`, `AWS_PROFILE` and `TF_INPUT`. The Proxmox token comes from the system keyring through `.envrc.local` (in `.gitignore`); the `lab-secrets-sync` script puts it into the keyring from Bitwarden.
+- 2026-10-11: etcd backup set up: `talos-backup` (a `CronJob` in the `talos-backup` namespace, Argo CD application `talos-backup`) takes a snapshot every 3 hours, compresses it with zstd, encrypts it with age and uploads it to the bucket `lab-etcd-backup-2a7416`. `KubeTalosAPIAccessConfig` added to the control plane machine config (role `os:etcd:backup` for the `talos-backup` namespace); the bucket access keys are in the encrypted secret `talos-backup-s3`; alerts `EtcdBackupTooOld` and `EtcdBackupNeverSucceeded`. etcd backup moved from open questions to decisions made.
+- 2026-10-11: a restore drill of etcd from a snapshot carried out, and the runbook `docs/runbooks/etcd-restore.md` written from its results. The `.restore/` directory added to `.gitignore`.
+- 2026-10-13: `KUBECONFIG` in `.envrc` now points at `~/.kube/home/lab` (a copy of the kubeconfig outside the repository, readable only by the owner) instead of `./kubeconfig`. `bootstrap.sh` still exports the file to the repository root.
+- 2026-10-13: Argo CD permissions switched from a personal email address to a GitHub team: only members of the organization `oncall-gym` can log in (`orgs` in the Dex connector), and `role:admin` is granted to the team `oncall-gym:admins`.
+- 2026-10-13: the documentation (`README.md`, `AGENTS.md`) and the comments in the code translated into English ahead of opening the repository; the documentation language is now English.

@@ -8,12 +8,12 @@ spec:
   sources:
     - repoURL: https://helm.cilium.io
       chart: cilium
-      targetRevision: 1.20.2 # та же версия, что в bootstrap.sh
+      targetRevision: 1.20.2 # same version as in bootstrap.sh
       helm:
         releaseName: cilium
         valueFiles:
           - $values/gitops/cilium/values.yaml
-    - repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git # адрес репозитория, как в root.yaml
+    - repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git # repository URL, same as in root.yaml
       targetRevision: main
       ref: values
   destination:

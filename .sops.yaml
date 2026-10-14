@@ -1,6 +1,6 @@
-# Правила шифрования для sops. Файлы *.enc.yaml шифруются ключом age,
-# причём только секции *Templates: имена и метаданные остаются читаемыми.
+# Encryption rules for sops. *.enc.yaml files are encrypted with an age key,
+# and only the *Templates sections: names and metadata stay readable.
 creation_rules:
   - path_regex: \.enc\.yaml$
     encrypted_suffix: Templates
-    age: age1as6u32m3csdkncpv524dq0063k45xm8pf8vt9vkd284s3q52yqqq36jcy6 # age1..., вывод age-keygen
+    age: age1as6u32m3csdkncpv524dq0063k45xm8pf8vt9vkd284s3q52yqqq36jcy6 # public key (age1...), from age-keygen output

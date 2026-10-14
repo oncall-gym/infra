@@ -1,5 +1,5 @@
-# Единая точка входа. Cilium создаёт для неё сервис типа LoadBalancer,
-# MetalLB выдаёт адрес, cert-manager выпускает сертификат по аннотации.
+# The single entry point. Cilium creates a LoadBalancer service for it,
+# MetalLB hands out the address, cert-manager issues the certificate from the annotation.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -19,7 +19,7 @@ spec:
       hostname: "*.lab.home.arpa"
       allowedRoutes:
         namespaces:
-          from: Same # на 80-м порту живёт только перенаправление
+          from: Same # port 80 serves only the redirect
     - name: https
       protocol: HTTPS
       port: 443

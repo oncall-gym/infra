@@ -4,9 +4,9 @@ metadata:
   name: talos-backup
   namespace: talos-backup
 spec:
-  schedule: "15 */3 * * *"        # каждые 3 часа
-  concurrencyPolicy: Forbid        # не запускать новый, пока идёт предыдущий
-  startingDeadlineSeconds: 3600    # пропущенный запуск догнать в течение часа
+  schedule: "15 */3 * * *"        # every 3 hours
+  concurrencyPolicy: Forbid        # do not start a new run while the previous one is going
+  startingDeadlineSeconds: 3600    # catch up a missed run within an hour
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
@@ -44,9 +44,9 @@ spec:
                 - name: CLUSTER_NAME
                   value: lab
                 - name: AGE_RECIPIENT_PUBLIC_KEY
-                  value: age1alzza8xucjt8lgc95k9ersvvenx6f0dxz75cuh7hc4unzx3lmf9qkj4jha                  # открытый ключ из шага 0
+                  value: age1alzza8xucjt8lgc95k9ersvvenx6f0dxz75cuh7hc4unzx3lmf9qkj4jha                  # public key of the dedicated backup key; the private key is not in the cluster
                 - name: ENABLE_COMPRESSION
-                  value: "true"                 # zstd перед шифрованием
+                  value: "true"                 # zstd before encryption
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

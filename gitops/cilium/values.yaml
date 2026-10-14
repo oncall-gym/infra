@@ -1,11 +1,11 @@
-# Настройки Cilium под Talos (по документации Talos 1.14)
+# Cilium settings for Talos (following the Talos 1.14 documentation)
 ipam:
   mode: kubernetes
 
-# Cilium берёт на себя работу kube-proxy
+# Cilium takes over the job of kube-proxy
 kubeProxyReplacement: true
 
-# KubePrism: локальный балансировщик Talos перед API-сервером
+# KubePrism: the local Talos load balancer in front of the API server
 k8sServiceHost: localhost
 k8sServicePort: 7445
 
@@ -19,7 +19,7 @@ cgroup:
     enabled: false
   hostRoot: /sys/fs/cgroup
 
-# Экономим память на стенде
+# Save memory in the lab
 operator:
   replicas: 1
 

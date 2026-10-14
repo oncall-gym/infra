@@ -1,5 +1,5 @@
-# Метрики, алерты и Grafana одним чартом: VictoriaMetrics вместо Prometheus,
-# потому что при той же совместимости он заметно экономнее по памяти.
+# Metrics, alerts and Grafana in one chart: VictoriaMetrics instead of Prometheus,
+# because with the same compatibility it needs noticeably less memory.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -43,8 +43,8 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
-  # Пароль Grafana генерируется при каждой отрисовке чарта; без этого
-  # приложение было бы вечно OutOfSync (так рекомендует документация чарта)
+  # The Grafana password is generated on every chart render; without this
+  # the application would be OutOfSync forever (as the chart documentation recommends)
   ignoreDifferences:
     - group: ""
       kind: Secret
@@ -58,9 +58,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true # описания типов у оператора слишком большие
+      - ServerSideApply=true # the operator's type definitions are too large
       - RespectIgnoreDifferences=true
-    # node-exporter читает данные хоста, Talos по умолчанию это запрещает
+    # node-exporter reads host data, which Talos forbids by default
     managedNamespaceMetadata:
       labels:
         pod-security.kubernetes.io/enforce: privileged

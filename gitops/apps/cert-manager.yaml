@@ -14,7 +14,7 @@ spec:
       valuesObject:
         crds:
           enabled: true
-        # Без этого cert-manager не смотрит на объекты Gateway
+        # Without this cert-manager does not watch Gateway objects
         config:
           apiVersion: controller.config.cert-manager.io/v1alpha1
           kind: ControllerConfiguration

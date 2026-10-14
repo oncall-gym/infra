@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
-# Поднимает кластер с нуля: ВМ и Talos, затем Cilium, затем Argo CD.
-# Всё остальное Argo CD ставит сам из Git.
+# Brings the cluster up from scratch: VMs and Talos, then Cilium, then Argo CD.
+# Argo CD installs everything else from Git.
 set -euo pipefail
 
 CILIUM_VERSION="1.20.2"      # helm search repo cilium/cilium
-ARGOCD_VERSION="10.9.6"      # та же, что в gitops/apps/argocd.yaml
-GATEWAY_API_VERSION="v1.6.1" # та же, что в gitops/apps/gateway-api-crds.yaml
+ARGOCD_VERSION="10.9.6"      # same as in gitops/apps/argocd.yaml
+GATEWAY_API_VERSION="v1.6.1" # same as in gitops/apps/gateway-api-crds.yaml
 REPO_URL="git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git"
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/argocd-deploy-key}"
 CA_SECRET="${CA_SECRET:-$HOME/.lab/lab-root-ca-secret.json}"
 AGE_KEY="${AGE_KEY:-$HOME/.lab/age.key}"
-[ -f "$AGE_KEY" ] || { echo "Не найден ключ age: $AGE_KEY" >&2; exit 1; }
+[ -f "$AGE_KEY" ] || { echo "age key not found: $AGE_KEY" >&2; exit 1; }
 
-# Проверяем всё необходимое до того, как что-то создавать
+# Check all prerequisites before creating anything
 for cmd in terraform kubectl helm jq; do
-  command -v "$cmd" >/dev/null || { echo "Не найдена утилита: $cmd" >&2; exit 1; }
+  command -v "$cmd" >/dev/null || { echo "Utility not found: $cmd" >&2; exit 1; }
 done
-[ -f "$DEPLOY_KEY" ] || { echo "Не найден deploy-ключ: $DEPLOY_KEY" >&2; exit 1; }
+[ -f "$DEPLOY_KEY" ] || { echo "Deploy key not found: $DEPLOY_KEY" >&2; exit 1; }
 
-# Компонент уже передан под управление Argo CD: значит, это живой кластер,
-# и ставить его через Helm повторно нельзя
+# The component is already managed by Argo CD: this is a live cluster,
+# and it must not be installed with Helm again
 managed_by_argocd() {
   kubectl -n argocd get application "$1" >/dev/null 2>&1
 }
 
-# Убирает из секрета служебные поля, с которыми его нельзя создать заново
+# Strips the service fields that would prevent the secret from being created again
 clean_secret() {
   jq 'del(.metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp,
           .metadata.managedFields, .metadata.ownerReferences,
@@ -36,38 +36,38 @@ terraform output -raw kubeconfig  > kubeconfig
 terraform output -raw talosconfig > talosconfig
 export KUBECONFIG="$PWD/kubeconfig"
 
-echo "Жду API-сервер..."
+echo "Waiting for the API server..."
 until kubectl get --raw /readyz >/dev/null 2>&1; do sleep 5; done
 
 helm repo add cilium https://helm.cilium.io >/dev/null
 helm repo add argo https://argoproj.github.io/argo-helm >/dev/null
 helm repo update >/dev/null
 
-# Типы Gateway API нужны до старта Cilium: иначе он не включит поддержку
-# шлюзов, и придётся перезапускать его вручную. Ставим их только на свежий
-# кластер: на живом ими уже управляет Argo CD, и спорить с ним не нужно.
+# The Gateway API types are needed before Cilium starts: otherwise it does not enable
+# gateway support and has to be restarted by hand. Install them only on a fresh
+# cluster: on a live one Argo CD already manages them, and we must not fight it.
 if ! kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
   kubectl apply --server-side -f \
     "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 else
-  echo "Типы Gateway API уже есть, пропускаю"
+  echo "Gateway API types already exist, skipping"
 fi
 
-# Без CNI ноды остаются NotReady, поэтому Cilium ставится раньше всего остального
+# Without a CNI the nodes stay NotReady, so Cilium is installed before everything else
 if managed_by_argocd cilium; then
-  echo "Cilium уже под управлением Argo CD, пропускаю"
+  echo "Cilium is already managed by Argo CD, skipping"
 else
   helm upgrade --install cilium cilium/cilium \
     --namespace kube-system --version "$CILIUM_VERSION" \
     -f gitops/cilium/values.yaml
 fi
 
-echo "Жду регистрации нод..."
+echo "Waiting for the nodes to register..."
 until [ "$(kubectl get nodes --no-headers 2>/dev/null | wc -l)" -ge 3 ]; do sleep 5; done
 kubectl wait --for=condition=Ready nodes --all --timeout=10m
 
 if managed_by_argocd argocd; then
-  echo "Argo CD уже управляет сам собой, пропускаю"
+  echo "Argo CD already manages itself, skipping"
 else
   helm upgrade --install argocd argo/argo-cd \
     --namespace argocd --create-namespace --version "$ARGOCD_VERSION" \
@@ -82,45 +82,45 @@ kubectl -n argocd create secret generic repo-local-infra \
 kubectl -n argocd label secret repo-local-infra \
   argocd.argoproj.io/secret-type=repository --overwrite
 
-# Корневой сертификат стенда: восстанавливаем до запуска cert-manager,
-# чтобы он не сгенерировал новый
+# Lab root certificate: restore it before cert-manager starts,
+# so that it does not generate a new one
 kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
 if [ -s "$CA_SECRET" ]; then
   if kubectl -n cert-manager get secret lab-root-ca >/dev/null 2>&1; then
-    echo "Корневой сертификат уже в кластере, пропускаю"
+    echo "Root certificate is already in the cluster, skipping"
   else
     kubectl create -f "$CA_SECRET"
-    echo "Корневой сертификат восстановлен из $CA_SECRET"
+    echo "Root certificate restored from $CA_SECRET"
   fi
 else
-  echo "Сохранённого корневого сертификата нет, cert-manager создаст новый"
+  echo "No saved root certificate, cert-manager will create a new one"
 fi
 
-# Ключ, которым оператор расшифровывает секреты из Git
+# The key the operator uses to decrypt secrets from Git
 kubectl create namespace sops-secrets-operator --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n sops-secrets-operator create secret generic sops-age-key-file \
   --from-file=key="$AGE_KEY" --dry-run=client -o yaml | kubectl apply -f -
 
-# С этого момента Argo CD ставит всё остальное из Git
+# From here on Argo CD installs everything else from Git
 kubectl apply -f gitops/root.yaml
 
-# На свежей установке сохраняем новый корневой сертификат для следующих пересозданий
+# On a fresh install, save the new root certificate for future re-creations
 if [ ! -s "$CA_SECRET" ]; then
-  echo "Жду, пока cert-manager создаст корневой сертификат (до 15 минут)..."
+  echo "Waiting for cert-manager to create the root certificate (up to 15 minutes)..."
   for _ in $(seq 90); do
     kubectl -n cert-manager get secret lab-root-ca >/dev/null 2>&1 && break
     sleep 10
   done
   if ! kubectl -n cert-manager get secret lab-root-ca >/dev/null 2>&1; then
-    echo "Сертификат так и не появился. Кластер поднят, но сохрани его позже вручную." >&2
+    echo "The certificate never appeared. The cluster is up, but save it by hand later." >&2
     exit 1
   fi
   mkdir -p "$(dirname "$CA_SECRET")"
-  # Пишем во временный файл, чтобы при ошибке не остался пустой
+  # Write to a temporary file so that a failure does not leave an empty one behind
   ( umask 077
     kubectl -n cert-manager get secret lab-root-ca -o json | clean_secret > "$CA_SECRET.tmp" )
   mv "$CA_SECRET.tmp" "$CA_SECRET"
-  echo "Сохранён в $CA_SECRET. Скопируй его в менеджер паролей и добавь сертификат в доверенные."
+  echo "Saved to $CA_SECRET. Copy it into a password manager and add the certificate to the trusted store."
 fi
 
-echo "Готово."
+echo "Done."

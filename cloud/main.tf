@@ -6,8 +6,8 @@ terraform {
   }
 }
 
-# Провайдер AWS, направленный на S3 cloud.ru. Флаги skip_* отключают
-# обращения к сервисам AWS, которых у cloud.ru нет (STS, IAM, метаданные).
+# The AWS provider pointed at cloud.ru S3. The skip_* flags disable
+# calls to AWS services that cloud.ru does not have (STS, IAM, metadata).
 provider "aws" {
   profile                     = "cloudru"
   region                      = "ru-central-1"
@@ -30,13 +30,13 @@ resource "aws_s3_bucket" "tfstate" {
 
 resource "aws_s3_bucket_versioning" "tfstate" {
   bucket = aws_s3_bucket.tfstate.id
-  versioning_configuration { status = "Enabled" } # испорченный state можно откатить
+  versioning_configuration { status = "Enabled" } # a broken state can be rolled back
 }
 
-# --- Снимки etcd ---
+# --- etcd snapshots ---
 resource "aws_s3_bucket" "etcd_backup" {
   bucket              = "lab-etcd-backup-${random_id.suffix.hex}"
-  object_lock_enabled = true # включается только при создании бакета
+  object_lock_enabled = true # can only be enabled when the bucket is created
 }
 
 resource "aws_s3_bucket_versioning" "etcd_backup" {
@@ -44,8 +44,8 @@ resource "aws_s3_bucket_versioning" "etcd_backup" {
   versioning_configuration { status = "Enabled" }
 }
 
-# 14 дней каждый снимок нельзя ни удалить, ни перезаписать.
-# GOVERNANCE: s3e.admin в крайнем случае может снять блокировку, COMPLIANCE не может никто.
+# For 14 days each snapshot can be neither deleted nor overwritten.
+# GOVERNANCE: s3e.admin can lift the lock as a last resort; with COMPLIANCE nobody can.
 resource "aws_s3_bucket_object_lock_configuration" "etcd_backup" {
   bucket = aws_s3_bucket.etcd_backup.id
   rule {
@@ -69,9 +69,9 @@ locals {
   })
 }
 
-# aws_s3_bucket_lifecycle_configuration не дожидается подтверждения от cloud.ru:
-# после записи он ждёт в ответе поля, которых этот S3 не возвращает.
-# Поэтому правило записываем через AWS CLI; при изменении JSON оно перезапишется.
+# aws_s3_bucket_lifecycle_configuration never gets a confirmation from cloud.ru:
+# after the write it waits for response fields that this S3 does not return.
+# So the rule is written with the AWS CLI; when the JSON changes it is written again.
 resource "terraform_data" "etcd_lifecycle" {
   triggers_replace = [aws_s3_bucket.etcd_backup.id, local.etcd_lifecycle]
 

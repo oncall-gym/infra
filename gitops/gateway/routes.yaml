@@ -1,4 +1,4 @@
-# Всё, что пришло по HTTP, отправляем на HTTPS
+# Everything that arrives over HTTP is sent to HTTPS
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

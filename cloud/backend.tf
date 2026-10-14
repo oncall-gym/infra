@@ -10,14 +10,14 @@ terraform {
     }
     use_path_style = true
 
-    # У cloud.ru нет сервисов AWS STS, IAM и EC2 metadata, отключаем обращения к ним
+    # cloud.ru has no AWS STS, IAM or EC2 metadata services, so calls to them are disabled
     skip_credentials_validation = true
     skip_region_validation      = true
     skip_requesting_account_id  = true
     skip_metadata_api_check     = true
     skip_s3_checksum            = true
 
-    # Блокировка: файл .tflock рядом со state, чтобы два apply не шли одновременно
+    # Locking: a .tflock file next to the state, so that two applies never run at once
     use_lockfile = true
   }
 }
