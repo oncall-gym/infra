@@ -87,5 +87,5 @@ resource "terraform_data" "etcd_lifecycle" {
   depends_on = [aws_s3_bucket_versioning.etcd_backup]
 }
 
-output "tfstate_bucket"     { value = aws_s3_bucket.tfstate.bucket }
+output "tfstate_bucket" { value = aws_s3_bucket.tfstate.bucket }
 output "etcd_backup_bucket" { value = aws_s3_bucket.etcd_backup.bucket }

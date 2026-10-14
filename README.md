@@ -83,7 +83,6 @@ Files:
 | `backend.tf` | state storage in cloud.ru S3: bucket `lab-tfstate-2a7416`, key `talos/terraform.tfstate` | yes |
 | `.terraform.lock.hcl` | pinned provider versions | yes |
 | `terraform.tfvars` | installer image and node parameters (VMID, IP, MAC, CPU, RAM) | no |
-| `terraform.tfstate`, `terraform.tfstate.backup` | leftovers of the local state after the move to S3: the first file is empty, the second holds the last local copy of the state with the cluster secrets | no |
 | `kubeconfig`, `talosconfig` | client configs exported from the Terraform outputs | no |
 | `bootstrap.sh` | cluster deployment from scratch (see "Deployment from scratch") | yes |
 | `.sops.yaml` | `sops` encryption rules for `*.enc.yaml` files (see "Secrets (SOPS)") | yes |
@@ -457,7 +456,7 @@ Local files (not in VCS):
 | --- | --- | --- |
 | `~/.lab/lab-root-ca-secret.json` | a copy of the secret `lab-root-ca` together with the private key of the certificate authority; `bootstrap.sh` creates and reads it (the path is the `CA_SECRET` variable) | yes; outside the repository, readable only by the owner |
 | `lab-root-ca.crt` (repository root) | the lab root certificate, which is added to the trusted store on client machines | no; kept out of VCS by the `*.crt` pattern in `.gitignore` |
-| `lab-root-ca-secret.yaml` (repository root) | an earlier manual export of the same secret; `bootstrap.sh` does not use it | yes; listed in `.gitignore` |
+| `~/.lab/lab-root-ca-secret.yaml` | an earlier manual export of the same secret; `bootstrap.sh` does not use it | yes; outside the repository, readable only by the owner |
 
 Status check:
 
