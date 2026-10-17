@@ -6,7 +6,7 @@ set -euo pipefail
 CILIUM_VERSION="1.20.2"      # helm search repo cilium/cilium
 ARGOCD_VERSION="10.9.6"      # same as in gitops/apps/argocd.yaml
 GATEWAY_API_VERSION="v1.6.1" # same as in gitops/apps/gateway-api-crds.yaml
-REPO_URL="git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git"
+REPO_URL="git@github.com:oncall-gym/infra.git"
 DEPLOY_KEY="${DEPLOY_KEY:-$HOME/argocd-deploy-key}"
 CA_SECRET="${CA_SECRET:-$HOME/.lab/lab-root-ca-secret.json}"
 AGE_KEY="${AGE_KEY:-$HOME/.lab/age.key}"

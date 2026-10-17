@@ -1,10 +1,10 @@
-# local-infra
+# infra
 
 Local infrastructure for the MVP of a DevOps troubleshooting trainer.
 
 ## Purpose
 
-This repository describes the environment where the trainer MVP is deployed and tested: a platform that will host training labs with pre-planted faults for practising diagnosis and repair.
+This repository describes the environment where the trainer MVP is deployed and tested: a platform that will host training labs with pre-planted faults for practising diagnosis and repair. The trainer itself (the API and the scenarios) lives in a separate repository, [oncall-gym/trainer](https://github.com/oncall-gym/trainer).
 
 ## Decisions made
 
@@ -284,7 +284,7 @@ Argo CD is installed in the cluster and keeps the cluster state in sync with the
 | Helm chart | `argo-cd` 10.9.6 from `https://argoproj.github.io/argo-helm` |
 | Namespace | `argocd` |
 | Release name | `argocd` |
-| Repository | `git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git` (SSH) |
+| Repository | `git@github.com:oncall-gym/infra.git` (SSH) |
 | Argo CD project | `default` |
 
 Layout:

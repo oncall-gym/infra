@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git
+    repoURL: git@github.com:oncall-gym/infra.git
     targetRevision: main
     path: gitops/apps
   destination:

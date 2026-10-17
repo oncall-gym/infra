@@ -13,7 +13,7 @@ spec:
         releaseName: argocd
         valueFiles:
           - $values/gitops/argocd/values.yaml
-    - repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git
+    - repoURL: git@github.com:oncall-gym/infra.git
       targetRevision: main
       ref: values
   destination:

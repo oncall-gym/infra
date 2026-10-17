@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git # repository URL, same as in root.yaml
+    repoURL: git@github.com:oncall-gym/infra.git # repository URL, same as in root.yaml
     targetRevision: main
     path: gitops/cert-manager
   destination:

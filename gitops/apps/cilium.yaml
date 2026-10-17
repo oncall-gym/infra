@@ -13,7 +13,7 @@ spec:
         releaseName: cilium
         valueFiles:
           - $values/gitops/cilium/values.yaml
-    - repoURL: git@github.com:artem-dev-ops/DevOps-Troubleshoot-Training.git # repository URL, same as in root.yaml
+    - repoURL: git@github.com:oncall-gym/infra.git # repository URL, same as in root.yaml
       targetRevision: main
       ref: values
   destination:
