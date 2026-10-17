@@ -20,9 +20,9 @@
 
 ## Prerequisites
 
-- `talosctl`, `kubectl`, `aws`, `age`, `zstd` installed; run from `~/local-infra` (direnv sets
+- `talosctl`, `kubectl`, `aws`, `age`, `zstd` installed; run from the repository root (direnv sets
   `TALOSCONFIG`, `KUBECONFIG`, `AWS_PROFILE`).
-- Backup private key: `~/.lab/etcd-backup.age.key` (master copy in Bitwarden).
+- Backup private key: `~/.lab/etcd-backup.age.key` (master copy in the password manager).
 - cloud.ru access: profile `cloudru` in `~/.aws/credentials`.
 - Talos machine secrets are unchanged (they live in Terraform state in S3). If the whole
   cluster was rebuilt with **new** secrets, the snapshot will not match the node certificates.
@@ -32,7 +32,7 @@
 ### 0. Prepare
 
 - Pause the Better Stack heartbeat (the dead man's switch will fire otherwise).
-- Work in a git-ignored directory: `mkdir -p ~/local-infra/.restore && cd ~/local-infra/.restore`.
+- Work in a git-ignored directory: `mkdir -p .restore && cd .restore` in the repository root.
 
 ### 1. Pick and decrypt a snapshot
 
@@ -139,4 +139,4 @@ Resume the Better Stack heartbeat. Record the drill below.
 
 - Full rebuild: `terraform destroy` + `terraform apply` with bootstrap from snapshot (requires
   skipping the regular `talos_machine_bootstrap`).
-- Restore on a machine without access to this laptop (Bitwarden + README only).
+- Restore from a different machine, using only the password manager and these docs.
