@@ -326,6 +326,7 @@ How it works:
 - To save memory, the notifications controller is disabled in the chart. Dex is enabled: GitHub login works through it (see "Argo CD login").
 - `argocd-server` runs without TLS (`configs.params.server.insecure: true`): TLS terminates at the gateway, and the gateway talks to the service over HTTP.
 - Repository access uses the SSH key from the secret `repo-local-infra` in the `argocd` namespace. `bootstrap.sh` creates the secret; it is not stored in Git.
+- The key is a read-only deploy key of the repository, so deploy keys must stay allowed in the `oncall-gym` organization settings. If they are disabled, GitHub silently disables the key: the applications keep running, but changes from Git no longer reach the cluster (sync status `Unknown`, error `repository not found`).
 
 The initial installation of Argo CD, the creation of the secret `repo-local-infra` and the application of `gitops/root.yaml` are done by `bootstrap.sh` (see "Deployment from scratch"). After that Argo CD maintains itself.
 
