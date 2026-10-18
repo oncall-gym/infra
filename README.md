@@ -116,6 +116,7 @@ When all applications are `Synced` and `Healthy`, Argo CD, Hubble UI and Grafana
 | [docs/monitoring.md](docs/monitoring.md) | metrics, alerts and Grafana |
 | [docs/backup.md](docs/backup.md) | etcd backups |
 | [docs/runbooks/etcd-restore.md](docs/runbooks/etcd-restore.md) | restoring etcd from a snapshot |
+| [docs/runbooks/rotate-ghcr-token.md](docs/runbooks/rotate-ghcr-token.md) | rotating the GHCR image pull token |
 
 ## Open questions
 

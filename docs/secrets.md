@@ -13,6 +13,7 @@ Secrets live in Git encrypted with [SOPS](https://github.com/getsops/sops) and a
 | `argocd-github-oauth.enc.yaml` | `argocd/argocd-github-oauth` | GitHub OAuth app credentials for Argo CD login |
 | `alertmanager-config.enc.yaml` | `monitoring/alertmanager-config` | the Alertmanager configuration, including SMTP credentials |
 | `talos-backup-s3.enc.yaml` | `talos-backup/talos-backup-s3` | upload-only S3 keys for etcd snapshots |
+| `ghcr-pull.enc.yaml` | `trainer/ghcr-pull` | GHCR pull token of `oncall-gym-bot` for trainer images, expires 2027-10-18; see [runbooks/rotate-ghcr-token.md](runbooks/rotate-ghcr-token.md) |
 
 ## Editing
 
