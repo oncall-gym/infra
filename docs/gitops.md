@@ -17,6 +17,7 @@ The root application `gitops/root.yaml` applies every `Application` in `gitops/a
 | `sops-secrets-operator`, `platform-secrets` | the operator and the encrypted secrets |
 | `monitoring` | VictoriaMetrics, Alertmanager, Grafana |
 | `talos-backup` | etcd backups and their alerts |
+| `trainer` | the trainer API (`gitops/trainer`), image from GHCR |
 
 To add a component, put an `Application` manifest into `gitops/apps/` and push to `main`.
 

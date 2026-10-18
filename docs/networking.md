@@ -40,10 +40,23 @@ Published services:
 | https://argocd.lab.home.arpa | `argocd` in `argocd` | `argocd-server:80` |
 | https://hubble.lab.home.arpa | `hubble` in `kube-system` | `hubble-ui:80` |
 | https://grafana.lab.home.arpa | `grafana` in `monitoring` | `vmks-grafana:80` |
+| https://trainer.lab.home.arpa | `trainer-api` in `trainer` | `trainer-api:80` |
+
+### Where HTTPRoutes live
+
+- **Third-party platform tools** (Argo CD, Hubble, Grafana): in `gitops/gateway/`,
+  because their Helm charts do not ship routes we control.
+- **Our own applications** (trainer and future services): next to the application,
+  in `gitops/<app>/route.yaml`, in the application's namespace. The route is created,
+  changed and deleted together with the app.
+
+The Gateway decides which namespaces may attach routes (`allowedRoutes` on each listener):
+`https` accepts routes from all namespaces, `http` only from `gateway`, where the only
+route is the redirect to HTTPS.
 
 ### Publishing a service
 
-Add an `HTTPRoute` to `gitops/gateway/` in the service's own namespace, with `parentRefs` pointing at the gateway `lab` in the `gateway` namespace and `sectionName: https`, and a host name `<service>.lab.home.arpa`. Add a DNS record for the name. No certificate is needed: the wildcard covers it. The service itself stays `ClusterIP`.
+Add an `HTTPRoute` in the service's own namespace, in the place described above, with `parentRefs` pointing at the gateway `lab` in the `gateway` namespace and `sectionName: https`, and a host name `<service>.lab.home.arpa`. Add a DNS record for the name. No certificate is needed: the wildcard covers it. The service itself stays `ClusterIP`.
 
 ## Checks
 
