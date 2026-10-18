@@ -1,0 +1,72 @@
+# Permissions of the trainer API.
+#
+# Session namespaces have random names, so namespaced RBAC cannot target them
+# and this has to be a ClusterRole. Kubernetes also refuses to let anyone grant
+# permissions they do not hold themselves (privilege escalation prevention), so
+# the API must hold every permission the scenario's `player` Role grants.
+#
+# Known gap: these rules apply to every namespace, not only s-*. Narrowing them
+# needs an admission policy or a dedicated operator; tracked as follow-up work.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trainer-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trainer-api
+rules:
+  # Session lifecycle
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch, create, patch, delete]
+  # Objects the scenarios create (server-side apply needs get, create, patch)
+  - apiGroups: [""]
+    resources: [configmaps, services, pods, serviceaccounts, resourcequotas, limitranges]
+    verbs: [get, list, watch, create, patch, update, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, patch, update, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, create, patch, delete]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [get, create, patch, delete]
+  # Solution checks go through the API server's service proxy
+  - apiGroups: [""]
+    resources: [services/proxy]
+    verbs: [get]
+  # Everything the player Role grants (required to create that Role)
+  - apiGroups: [""]
+    resources: [pods/log, endpoints, events, persistentvolumeclaims]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, update, patch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trainer-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trainer-api
+subjects:
+  - kind: ServiceAccount
+    name: trainer-api
+    namespace: trainer
