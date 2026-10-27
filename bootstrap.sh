@@ -31,9 +31,10 @@ clean_secret() {
           .metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"])'
 }
 
-terraform apply -parallelism=1
-terraform output -raw kubeconfig  > kubeconfig
-terraform output -raw talosconfig > talosconfig
+TF_CLUSTER="terraform/cluster"
+terraform -chdir="$TF_CLUSTER" apply -parallelism=1
+terraform -chdir="$TF_CLUSTER" output -raw kubeconfig  > kubeconfig
+terraform -chdir="$TF_CLUSTER" output -raw talosconfig > talosconfig
 export KUBECONFIG="$PWD/kubeconfig"
 
 echo "Waiting for the API server..."

@@ -4,8 +4,8 @@
 
 ## Requirements
 
-- `terraform`, `kubectl`, `helm` and `jq`; `terraform init` done.
-- A filled-in `terraform.tfvars` and the Proxmox API token in `TF_VAR_proxmox_api_token` (see [provisioning.md](provisioning.md#local-environment)).
+- `terraform`, `kubectl`, `helm` and `jq`; `terraform init` done in `terraform/cluster/`.
+- A filled-in `terraform/cluster/terraform.tfvars` and the Proxmox API token in `TF_VAR_proxmox_api_token` (see [provisioning.md](provisioning.md#local-environment)).
 - The AWS CLI profile with access to the state bucket.
 - The Talos ISO in Proxmox storage (`local:iso/talos.iso`).
 - Access to `github.com` (the Gateway API CRDs are downloaded from there).

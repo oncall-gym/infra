@@ -10,7 +10,7 @@ The choices in the README stack table are not revisited without an explicit requ
 
 ## Working rules
 
-- **Change infrastructure through code.** VMs and Talos machine configs through Terraform in the root, the cloud.ru buckets through Terraform in `cloud/`, cluster components through an `Application` in `gitops/apps`. No manual changes in Proxmox, the cloud.ru console, `talosctl apply-config`, `kubectl apply` or `helm install`: Argo CD reverts them and the Terraform state drifts. Never edit the state by hand.
+- **Change infrastructure through code.** VMs and Talos machine configs through Terraform in `terraform/cluster/`, the cloud.ru buckets through Terraform in `terraform/cloud/`, cluster components through an `Application` in `gitops/apps`. No manual changes in Proxmox, the cloud.ru console, `talosctl apply-config`, `kubectl apply` or `helm install`: Argo CD reverts them and the Terraform state drifts. Never edit the state by hand.
 - **Talos is immutable.** No SSH, no shell, no packages: only the Talos API and declarative configs.
 - **Keep secrets out of Git.** A secret that has to reach the cluster goes into a `SopsSecret` in `gitops/secrets/<name>.enc.yaml`, encrypted with `sops`; check that `spec.secretTemplates` holds only `ENC[...]` values before committing. Never commit or print kubeconfigs, talosconfigs, Terraform state, `terraform.tfvars`, `.envrc.local`, private keys (age, SSH, the CA), access keys, tokens, etcd snapshots or decrypted secrets. `.envrc` holds only paths and non-secret settings.
 - **Respect the fixed network plan.** Node addresses, the MetalLB pool and the gateway address are listed in `docs/provisioning.md` and `docs/networking.md`; do not reuse or change them.

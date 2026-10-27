@@ -70,8 +70,8 @@ flowchart LR
 ## Repository layout
 
 ```
-main.tf, variables.tf, ...   Terraform: Proxmox VMs and the Talos cluster
-cloud/                       Terraform: S3 buckets for state and etcd backups
+terraform/cluster/           Terraform: Proxmox VMs and the Talos cluster
+terraform/cloud/             Terraform: S3 buckets for state and etcd backups
 bootstrap.sh                 brings the cluster up from scratch
 gitops/root.yaml             Argo CD root application
 gitops/apps/                 one Argo CD Application per component
@@ -96,7 +96,7 @@ docs/                        component notes and runbooks
 Requirements: a Proxmox host with the Talos ISO uploaded, `terraform`, `kubectl`, `helm`, `jq`, an S3 bucket for the state, a Proxmox API token, the deploy key for this repository and the age key for the secrets. The full list is in [docs/bootstrap.md](docs/bootstrap.md).
 
 ```sh
-terraform init
+terraform -chdir=terraform/cluster init
 ./bootstrap.sh
 kubectl --kubeconfig ./kubeconfig -n argocd get applications
 ```
